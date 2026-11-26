@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=SafeRM Notify
+Comment=Notifications for SafeRM operations awaiting approval
+Exec=@EXECUTABLE@
+TryExec=@TRY_EXECUTABLE@
+Icon=saferm
+Terminal=false
