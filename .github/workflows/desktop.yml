@@ -1,0 +1,637 @@
+name: Test and package SafeRM
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_tests:
+        description: Run application tests (Go and frontend)
+        type: boolean
+        default: true
+        required: true
+      run_installer_tests:
+        description: Run install script and native installer tests (also builds packages)
+        type: boolean
+        default: true
+        required: true
+      run_packaging:
+        description: Build distribution packages
+        type: boolean
+        default: true
+        required: true
+      keep_unsigned_binaries:
+        description: Keep unsigned binaries in addition to signed packages
+        type: boolean
+        default: false
+        required: true
+      sign_artifacts:
+        description: Sign macOS and Windows binaries and packages; notarize macOS
+        type: boolean
+        default: true
+        required: true
+      release_version:
+        description: Package version (MAJOR.MINOR.PATCH)
+        type: string
+        default: '0.1.0'
+        required: true
+  workflow_call:
+    outputs:
+      checksums:
+        description: SHA-256 checksums of the release packages and installer scripts
+        value: ${{ jobs.assemble.outputs.checksums }}
+    inputs:
+      run_tests:
+        description: Run application tests (Go and frontend)
+        type: boolean
+        default: true
+      run_installer_tests:
+        description: Run install script and native installer tests (also builds packages)
+        type: boolean
+        default: true
+      run_packaging:
+        description: Build distribution packages
+        type: boolean
+        default: true
+      keep_unsigned_binaries:
+        description: Keep unsigned binaries in addition to signed packages
+        type: boolean
+        default: false
+      sign_artifacts:
+        type: boolean
+        default: true
+      release_version:
+        type: string
+        default: '0.1.0'
+
+permissions:
+  contents: read
+
+jobs:
+  configure:
+    runs-on: ubuntu-24.04
+    outputs:
+      package: ${{ steps.options.outputs.package }}
+      version: ${{ steps.options.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Validate inputs and installer sources
+        id: options
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          BUILD_PACKAGES: ${{ inputs.run_packaging || inputs.run_installer_tests }}
+        run: |
+          if [[ "$BUILD_PACKAGES" == true ]]; then
+            python scripts/release.py version "v$RELEASE_VERSION"
+          fi
+          python scripts/install/generate.py --check
+          echo "package=$BUILD_PACKAGES" >> "$GITHUB_OUTPUT"
+          echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+      - name: Test release assembly
+        if: inputs.run_tests
+        run: python -B -m unittest discover -s scripts -p release_test.py -v
+
+  build:
+    needs: configure
+    if: inputs.run_tests || needs.configure.outputs.package == 'true'
+    name: Test and package ${{ matrix.platform }} ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux
+            arch: amd64
+            race: true
+          - runner: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+            race: true
+          - runner: macos-latest
+            platform: darwin
+            arch: arm64
+            race: true
+          - runner: macos-15-intel
+            platform: darwin
+            arch: amd64
+            race: true
+          - runner: windows-latest
+            platform: windows
+            arch: amd64
+            race: true
+          - runner: windows-11-arm
+            platform: windows
+            arch: arm64
+            race: false # Go does not support the race detector on Windows ARM64.
+    runs-on: ${{ matrix.runner }}
+    env:
+      CGO_ENABLED: ${{ matrix.platform == 'windows' && matrix.arch == 'arm64' && '0' || '1' }}
+      CGO_CFLAGS: ${{ matrix.platform == 'darwin' && '-mmacosx-version-min=13.0' || '' }}
+      CGO_LDFLAGS: ${{ matrix.platform == 'darwin' && '-mmacosx-version-min=13.0' || '' }}
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
+      - name: Verify the native Go target
+        env:
+          TARGET_OS: ${{ matrix.platform }}
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: |
+          test "$(go env GOOS)" = "$TARGET_OS"
+          test "$(go env GOARCH)" = "$TARGET_ARCH"
+      - name: Install the Windows installer compiler
+        if: runner.os == 'Windows' && needs.configure.outputs.package == 'true' && !inputs.sign_artifacts
+        shell: pwsh
+        run: |
+          choco install nsis --yes --no-progress
+          "${env:ProgramFiles(x86)}\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Append
+      - name: Verify the Windows race detector toolchain
+        if: runner.os == 'Windows' && matrix.race && inputs.run_tests
+        run: |
+          gcc --version
+          test "$(gcc -dumpmachine)" = 'x86_64-w64-mingw32'
+      - name: Install the matching Wails CLI
+        run: |
+          wails_version="$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)"
+          go install "github.com/wailsapp/wails/v3/cmd/wails3@$wails_version"
+      - name: Run every Go test
+        id: go-tests
+        if: inputs.run_tests
+        env:
+          RACE_SUPPORTED: ${{ matrix.race }}
+        run: |
+          test_flags=()
+          if [[ "$RACE_SUPPORTED" == "true" ]]; then
+            test_flags+=(-race)
+          fi
+          go test -json -count=1 "${test_flags[@]}" ./... | tee "$RUNNER_TEMP/go-tests.jsonl"
+      - name: Reject skipped Go tests
+        if: always() && steps.go-tests.outcome != 'skipped'
+        run: |
+          node --input-type=module <<'JAVASCRIPT'
+          import { readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          const testResults = readFileSync(join(process.env.RUNNER_TEMP, 'go-tests.jsonl'), 'utf8');
+          for (const testResult of testResults.trim().split('\n')) {
+            const testEvent = JSON.parse(testResult);
+            if (testEvent.Action === 'skip' && testEvent.Test) {
+              throw new Error(`Skipped Go test: ${testEvent.Package}/${testEvent.Test}`);
+            }
+          }
+          JAVASCRIPT
+      - name: Run frontend tests without packaging
+        if: inputs.run_tests && needs.configure.outputs.package != 'true'
+        run: wails3 task test:frontend
+      - name: Build applications and prepare bundles
+        if: needs.configure.outputs.package == 'true'
+        env:
+          RELEASE_VERSION: ${{ needs.configure.outputs.version }}
+          CHECK_FRONTEND: ${{ inputs.run_tests }}
+        run: |
+          wails3 task build "CHECK_FRONTEND=$CHECK_FRONTEND"
+          wails3 task package:prepare "VERSION=$RELEASE_VERSION"
+      - name: Archive binaries for signing
+        if: needs.configure.outputs.package == 'true' && inputs.sign_artifacts && runner.os != 'Linux'
+        run: wails3 task package:binaries
+      - name: Transfer binaries to the signing job
+        if: needs.configure.outputs.package == 'true' && inputs.sign_artifacts && runner.os != 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.keep_unsigned_binaries && 'saferm-binaries' || 'signing-input' }}-${{ matrix.platform }}-${{ matrix.arch }}
+          path: bin/saferm-app-${{ matrix.platform }}-${{ matrix.arch }}.zip
+          retention-days: ${{ inputs.keep_unsigned_binaries && 14 || 1 }}
+          overwrite: true
+          if-no-files-found: error
+      - name: Create Linux packages or packages without distribution signing
+        if: needs.configure.outputs.package == 'true' && (runner.os == 'Linux' || !inputs.sign_artifacts)
+        env:
+          RELEASE_VERSION: ${{ needs.configure.outputs.version }}
+        run: wails3 task package:archive "VERSION=$RELEASE_VERSION"
+      - name: Transfer packages for assembly
+        if: needs.configure.outputs.package == 'true' && (runner.os == 'Linux' || !inputs.sign_artifacts)
+        uses: actions/upload-artifact@v7
+        with:
+          name: saferm-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            bin/SafeRM.dmg
+            bin/saferm-app-windows-${{ matrix.arch }}-setup.exe
+            bin/saferm-app-linux-${{ matrix.arch }}.deb
+            bin/saferm-app-linux-${{ matrix.arch }}.rpm
+          retention-days: 1
+          overwrite: true
+          if-no-files-found: error
+      - name: Retain Go test results
+        if: failure() && inputs.run_tests
+        uses: actions/upload-artifact@v7
+        with:
+          name: go-tests-${{ matrix.platform }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/go-tests.jsonl
+          if-no-files-found: warn
+
+  sign-macos:
+    name: Sign and notarize macOS ${{ matrix.arch }}
+    needs: [configure, build]
+    if: needs.configure.outputs.package == 'true' && inputs.sign_artifacts
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: macos-latest
+    environment: release
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.keep_unsigned_binaries && 'saferm-binaries' || 'signing-input' }}-darwin-${{ matrix.arch }}
+          path: darwin
+      - name: Import the Developer ID certificate
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          keychain_path="$RUNNER_TEMP/saferm-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 24)"
+          echo "::add-mask::$keychain_password"
+          printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          curl --fail --silent --show-error --location --output "$RUNNER_TEMP/developer-id-g2.cer" \
+            https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+          security import "$RUNNER_TEMP/developer-id-g2.cer" -k "$keychain_path"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain_path" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+            -k "$keychain_password" "$keychain_path" > "$RUNNER_TEMP/keychain-import.log"
+          security list-keychains -d user -s "$keychain_path" login.keychain-db
+      - name: Sign, notarize, and staple the app
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p signed notary-logs
+          ditto -x -k "darwin/saferm-app-darwin-$TARGET_ARCH.zip" darwin
+          app_path="darwin/SafeRM.app"
+          keychain_path="$RUNNER_TEMP/saferm-signing.keychain-db"
+          codesign --force --sign 'Developer ID Application' --keychain "$keychain_path" \
+            --options runtime --timestamp "$app_path/Contents/Library/LoginItems/SafeRM Notify.app"
+          codesign --force --sign 'Developer ID Application' --keychain "$keychain_path" \
+            --options runtime --timestamp "$app_path/Contents/MacOS/saferm"
+          codesign --force --sign 'Developer ID Application' --keychain "$keychain_path" \
+            --options runtime --timestamp "$app_path/Contents/MacOS/saferm-app"
+          codesign --force --sign 'Developer ID Application' --keychain "$keychain_path" \
+            --options runtime --timestamp "$app_path"
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          mkdir -p "$RUNNER_TEMP/disk-image"
+          ditto "$app_path" "$RUNNER_TEMP/disk-image/SafeRM.app"
+          ln -s /Applications "$RUNNER_TEMP/disk-image/Applications"
+          image_path="signed/saferm-app-darwin-$TARGET_ARCH.dmg"
+          hdiutil create -volname SafeRM -srcfolder "$RUNNER_TEMP/disk-image" -format UDZO "$image_path"
+          codesign --sign 'Developer ID Application' --keychain "$keychain_path" --timestamp "$image_path"
+          notary_exit=0
+          xcrun notarytool submit "$image_path" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json \
+            > notary-logs/result.json || notary_exit=$?
+          cat notary-logs/result.json
+          submission_id="$(jq -r '.id // empty' notary-logs/result.json)"
+          if [[ -n "$submission_id" ]]; then
+            xcrun notarytool log "$submission_id" --apple-id "$APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              notary-logs/submission.json
+          fi
+          test "$notary_exit" -eq 0
+          jq -e '.status == "Accepted"' notary-logs/result.json
+          xcrun stapler staple "$image_path"
+          xcrun stapler validate "$image_path"
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          spctl --assess --type execute --verbose=2 "$app_path"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$image_path"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: signed-darwin-${{ matrix.arch }}
+          path: signed/*.dmg
+          retention-days: 1
+          overwrite: true
+          if-no-files-found: error
+      - name: Retain notarization results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: notarization-darwin-${{ matrix.arch }}
+          path: notary-logs/
+          if-no-files-found: warn
+
+  sign-windows:
+    name: Sign Windows AMD64 and ARM64
+    needs: [configure, build]
+    if: needs.configure.outputs.package == 'true' && inputs.sign_artifacts
+    runs-on: windows-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Install the Windows installer compiler
+        run: |
+          choco install nsis --yes --no-progress
+          "${env:ProgramFiles(x86)}\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Append
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: ${{ inputs.keep_unsigned_binaries && 'saferm-binaries' || 'signing-input' }}-windows-*
+          path: signing-inputs
+          merge-multiple: true
+      - name: Extract the Windows executables
+        run: |
+          foreach ($targetArchitecture in @('amd64', 'arm64')) {
+            Expand-Archive -LiteralPath "signing-inputs/saferm-app-windows-$targetArchitecture.zip" `
+              -DestinationPath "windows/$targetArchitecture"
+          }
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+      - uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_CERTIFICATE_PROFILE }}
+          files-folder: ${{ github.workspace }}\windows
+          files-folder-filter: exe
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+      - name: Verify payload signatures and build installers
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          New-Item -ItemType Directory -Path signed | Out-Null
+          foreach ($targetArchitecture in @('amd64', 'arm64')) {
+            foreach ($executableName in @('saferm-app.exe', 'saferm-notify.exe', 'saferm.exe')) {
+              $executablePath = "windows/$targetArchitecture/$executableName"
+              $signature = Get-AuthenticodeSignature -LiteralPath $executablePath
+              if ($signature.Status -ne 'Valid' -or $null -eq $signature.TimeStamperCertificate) {
+                throw "$executablePath does not have a valid timestamped signature"
+              }
+            }
+            $wailsVersion = go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3
+            go run "github.com/wailsapp/wails/v3/cmd/wails3@$wailsVersion" generate webview2bootstrapper -dir "windows/$targetArchitecture"
+            if ($LASTEXITCODE -ne 0) { throw 'WebView2 bootstrapper download failed' }
+            $buildDirectory = (Resolve-Path "windows/$targetArchitecture").Path
+            makensis "/DBUILD_DIR=$buildDirectory" "/DTARGET_ARCH=$targetArchitecture" "/DPRODUCT_VERSION=$env:RELEASE_VERSION" build/windows/installer.nsi
+            if ($LASTEXITCODE -ne 0) { throw 'NSIS compilation failed' }
+            Copy-Item "$buildDirectory/saferm-app-windows-$targetArchitecture-setup.exe" signed/
+          }
+      - uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_CERTIFICATE_PROFILE }}
+          files-folder: ${{ github.workspace }}\signed
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+      - name: Verify installer signatures
+        run: |
+          foreach ($installer in Get-ChildItem signed/*.exe) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $installer.FullName
+            if ($signature.Status -ne 'Valid' -or $null -eq $signature.TimeStamperCertificate) {
+              throw "$installer does not have a valid timestamped signature"
+            }
+          }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: signed-windows
+          path: signed/*.exe
+          retention-days: 1
+          overwrite: true
+          if-no-files-found: error
+
+  assemble:
+    needs: [configure, build, sign-macos, sign-windows]
+    outputs:
+      checksums: ${{ steps.assemble.outputs.checksums }}
+    if: >-
+      always() && !cancelled() && needs.configure.outputs.package == 'true' &&
+      needs.build.result == 'success' &&
+      (!inputs.sign_artifacts || (needs.sign-macos.result == 'success' && needs.sign-windows.result == 'success'))
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: ${{ inputs.sign_artifacts && 'saferm-linux-*' || 'saferm-*' }}
+          path: packages
+      - uses: actions/download-artifact@v8
+        if: inputs.sign_artifacts
+        with:
+          pattern: signed-*
+          path: packages
+      - name: Assemble packages, installers, and checksums
+        id: assemble
+        env:
+          RELEASE_VERSION: ${{ needs.configure.outputs.version }}
+          SIGNED: ${{ inputs.sign_artifacts }}
+        run: |
+          signing_flags=()
+          if [[ "$SIGNED" == true ]]; then signing_flags+=(--signed); fi
+          python scripts/release.py assemble packages release "$RELEASE_VERSION" "${signing_flags[@]}"
+          {
+            echo 'checksums<<END_CHECKSUMS'
+            cat "release/saferm_${RELEASE_VERSION}_checksums.txt"
+            echo END_CHECKSUMS
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo '### Install a package from this run'
+            echo
+            echo 'The DEB is tested on Ubuntu 24.04 and the RPM on Fedora 44. Both are available for AMD64 and ARM64.'
+            printf '[Installation instructions](%s/%s/blob/%s/scripts/install/README.md#install-a-github-actions-build)\n\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+            echo '### SHA-256 checksums'
+            echo '```text'
+            cat "release/saferm_${RELEASE_VERSION}_checksums.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: ./.github/actions/upload-package
+        with:
+          filename: saferm_${{ needs.configure.outputs.version }}_darwin_amd64.dmg
+      - uses: ./.github/actions/upload-package
+        with:
+          filename: saferm_${{ needs.configure.outputs.version }}_darwin_arm64.dmg
+      - uses: ./.github/actions/upload-package
+        with:
+          filename: saferm_${{ needs.configure.outputs.version }}_linux_amd64.deb
+      - uses: ./.github/actions/upload-package
+        with:
+          filename: saferm_${{ needs.configure.outputs.version }}_linux_arm64.deb
+      - uses: ./.github/actions/upload-package
+        with:
+          filename: saferm_${{ needs.configure.outputs.version }}_linux_amd64.rpm
+      - uses: ./.github/actions/upload-package
+        with:
+          filename: saferm_${{ needs.configure.outputs.version }}_linux_arm64.rpm
+      - uses: ./.github/actions/upload-package
+        with:
+          filename: saferm_${{ needs.configure.outputs.version }}_windows_amd64.exe
+      - uses: ./.github/actions/upload-package
+        with:
+          filename: saferm_${{ needs.configure.outputs.version }}_windows_arm64.exe
+
+  install:
+    name: Install ${{ matrix.platform }} ${{ matrix.arch }}
+    needs: [configure, assemble]
+    if: always() && !cancelled() && inputs.run_installer_tests && needs.assemble.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux
+            arch: amd64
+            extension: deb
+          - runner: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+            extension: deb
+          - runner: macos-15-intel
+            platform: darwin
+            arch: amd64
+            extension: dmg
+          - runner: macos-latest
+            platform: darwin
+            arch: arm64
+            extension: dmg
+          - runner: windows-latest
+            platform: windows
+            arch: amd64
+            extension: exe
+          - runner: windows-11-arm
+            platform: windows
+            arch: arm64
+            extension: exe
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v8
+        with:
+          name: saferm_${{ needs.configure.outputs.version }}_${{ matrix.platform }}_${{ matrix.arch }}.${{ matrix.extension }}
+          path: release
+      - name: Refresh Linux package information
+        if: runner.os == 'Linux'
+        run: sudo apt-get update
+      - name: Install and verify the native package
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.configure.outputs.version }}
+          RELEASE_CHECKSUMS: ${{ needs.assemble.outputs.checksums }}
+          # Exercise Windows PowerShell 5.1, the default shell on supported Windows systems.
+          SAFERM_TEST_POWERSHELL: powershell
+        run: |
+          printf '%s\n' "$RELEASE_CHECKSUMS" > "release/saferm_${RELEASE_VERSION}_checksums.txt"
+          python scripts/install/test-install.py release "$RELEASE_VERSION" "$RUNNER_TEMP/installer-test"
+      - name: Retain installer output
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: install-results-${{ matrix.platform }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/installer-test/*.log
+          if-no-files-found: warn
+
+  install-rpm:
+    name: Install Fedora ${{ matrix.arch }}
+    needs: [configure, assemble]
+    if: always() && !cancelled() && inputs.run_installer_tests && needs.assemble.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: saferm_${{ needs.configure.outputs.version }}_linux_${{ matrix.arch }}.rpm
+          path: release
+      - name: Install and verify RPM packages in Fedora
+        env:
+          RELEASE_VERSION: ${{ needs.configure.outputs.version }}
+          RELEASE_CHECKSUMS: ${{ needs.assemble.outputs.checksums }}
+        run: |
+          printf '%s\n' "$RELEASE_CHECKSUMS" > "release/saferm_${RELEASE_VERSION}_checksums.txt"
+          docker run --rm -v "$PWD:/source:ro" -v "$RUNNER_TEMP:/results" fedora:44 \
+            sh -c 'dnf install -y python3 curl && python3 /source/scripts/install/test-install.py /source/release "$1" /results/installer-test' sh "$RELEASE_VERSION"
+      - name: Retain installer output
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: install-results-fedora-${{ matrix.arch }}
+          path: ${{ runner.temp }}/installer-test/*.log
+          if-no-files-found: warn
+
+  remove-intermediates:
+    name: Remove temporary artifact transfers
+    needs: [configure, build, sign-macos, sign-windows, assemble]
+    if: always() && !cancelled() && needs.assemble.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            const temporaryNames = new Set(['signed-windows']);
+            for (const architecture of ['amd64', 'arm64']) {
+              temporaryNames.add(`signed-darwin-${architecture}`);
+              for (const platform of ['darwin', 'linux', 'windows']) {
+                temporaryNames.add(`saferm-${platform}-${architecture}`);
+                temporaryNames.add(`signing-input-${platform}-${architecture}`);
+              }
+            }
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              ...context.repo, run_id: context.runId, per_page: 100
+            });
+            for (const artifact of artifacts) {
+              if (temporaryNames.has(artifact.name)) {
+                await github.rest.actions.deleteArtifact({ ...context.repo, artifact_id: artifact.id });
+              }
+            }

@@ -1,0 +1,91 @@
+name: Release SafeRM
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Package version for a test run; manual runs do not publish
+        type: string
+        default: '0.1.0'
+        required: true
+      sign_artifacts:
+        description: Sign Windows packages and sign and notarize macOS packages
+        type: boolean
+        default: true
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      number: ${{ steps.version.outputs.number }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Validate the release version
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          TAG_NAME: ${{ github.ref_name }}
+          TEST_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then TAG_NAME="v$TEST_VERSION"; fi
+          version="$(python scripts/release.py version "$TAG_NAME")"
+          echo "number=$version" >> "$GITHUB_OUTPUT"
+
+  packages:
+    needs: version
+    permissions:
+      contents: read
+      id-token: write
+      actions: write
+    uses: ./.github/workflows/desktop.yml
+    with:
+      run_tests: true
+      run_installer_tests: true
+      run_packaging: true
+      keep_unsigned_binaries: false
+      release_version: ${{ needs.version.outputs.number }}
+      sign_artifacts: ${{ github.event_name == 'push' || inputs.sign_artifacts }}
+    secrets: inherit
+
+  publish:
+    needs: [version, packages]
+    if: github.event_name == 'push' && github.repository == 'shdeen/saferm'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: saferm_${{ needs.version.outputs.number }}_*
+          path: release
+          merge-multiple: true
+      - name: Verify the packages and installer scripts before publishing
+        working-directory: release
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.number }}
+          RELEASE_CHECKSUMS: ${{ needs.packages.outputs.checksums }}
+        run: |
+          cp ../scripts/install/install.sh ../scripts/install/install.ps1 .
+          printf '%s\n' "$RELEASE_CHECKSUMS" > "saferm_${RELEASE_VERSION}_checksums.txt"
+          sha256sum --check --strict "saferm_${RELEASE_VERSION}_checksums.txt"
+      - name: Publish the tested release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ needs.version.outputs.number }}
+        run: gh release create "$RELEASE_TAG" release/* --verify-tag --title "SafeRM $RELEASE_VERSION" --generate-notes

@@ -1,0 +1,16 @@
+name: Upload a SafeRM package
+description: Make one assembled package downloadable by its release filename.
+inputs:
+  filename:
+    description: Filename of the package in the release directory
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.filename }}
+        path: release/${{ inputs.filename }}
+        archive: false
+        overwrite: true
+        if-no-files-found: error
