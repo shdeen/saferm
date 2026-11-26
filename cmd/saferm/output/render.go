@@ -95,7 +95,8 @@ func writeJSON(writer io.Writer, value any) error {
 // renderTemplate executes the named result template with the data and writes
 // the output to the writer with its tab-separated columns aligned.
 func renderTemplate(writer io.Writer, name string, data any) error {
-	functions := template.FuncMap{"appstring": appstrings.Text, "date": displayDate, "status": displayStatus, "operation": displayOperation, "value": displayValue, "configField": formatConfigurationField}
+	invalidValues := invalidValueFormatter{colored: isTerminal(writer)}
+	functions := template.FuncMap{"appstring": appstrings.Text, "date": displayDate, "status": displayStatus, "operation": displayOperation, "value": displayValue, "configField": formatConfigurationField, "invalidValue": invalidValues.format}
 
 	parsed, err := template.New("result").Funcs(functions).Parse(resultTemplate)
 	if err != nil {

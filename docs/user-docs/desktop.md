@@ -64,7 +64,8 @@ The Settings page edits `~/.saferm/config.toml` and saves each change automatica
 - **Configuration source** shows the file's path, or **Embedded defaults** when there is no file. **Open** opens the file in your default editor.
 - **Trash directory** accepts only an existing folder, chosen with **Change** or typed in. A missing folder isn't saved. Before changing it, read [Change the trash directory](configuration.md#change-the-trash-directory).
 - **History retention (days)** accepts a whole number, 0 or more.
+- When the file sets a trash directory or retention period that SafeRM can't use, the page shows the built-in value in that field and an error below it that names the value from the file. The next save writes the values shown. See [Missing and unusable values](configuration.md#missing-and-unusable-values).
 - **Paths requiring review** has one row per rule. The plus button adds a row, and the minus button removes the row you last selected. The app doesn't save a malformed rule: the row keeps your text and is marked once you leave it, and the file keeps the rule that the row last saved. A malformed rule that the file already holds is marked when the page opens. See [Write review rules](review.md#write-review-rules).
 - **Reset to defaults** replaces the settings with the built-in values, after confirmation when a file exists. It works even when the current file can't be read, so it can repair a broken file.
 
-Revised 2026-11-25
+Revised 2026-11-26

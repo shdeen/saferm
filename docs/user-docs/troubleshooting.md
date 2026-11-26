@@ -76,8 +76,6 @@ These phrases can appear within a longer message.
 | `configuration read failed` | The configuration file, or a link at its path, can't be read. |
 | `configuration decoding failed` | The configuration file isn't valid TOML. |
 | `configuration write failed` | The configuration file can't be written. |
-| `required setting is unset` | The command needs a setting that's missing from the file. Missing keys don't fall back to built-in values. |
-| `setting is invalid` | A blank trash path or a negative retention period. |
 | `review rule ... is malformed` | A review rule is not well formed. Every delete and move is recorded as pending until the rule is fixed or removed. |
 | `home directory lookup failed` | SafeRM can't determine your home directory. |
 
@@ -120,4 +118,4 @@ These phrases can appear within a longer message.
 
 Several `saferm` commands can run at once, alongside the desktop app. A command waits up to five seconds for another one that is writing the history. If another process changed the action first, SafeRM refuses the operation; reread the action before deciding what to do.
 
-Revised 2026-11-25
+Revised 2026-11-26

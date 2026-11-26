@@ -7,7 +7,7 @@ import {
   type Settings,
   type Request,
 } from '../bridge/operations';
-import { appstrings } from '../shared/text';
+import { appstrings, formatText } from '../shared/text';
 import { TrashDirectory } from './TrashDirectory';
 import { ReviewPaths } from './ReviewPaths';
 
@@ -59,7 +59,13 @@ export function Configuration({
         }
         setSettings(function updateSource(previousSettings) {
           return previousSettings
-            ? { ...previousSettings, path: savedSettings.path, external: savedSettings.external }
+            ? {
+                ...previousSettings,
+                path: savedSettings.path,
+                external: savedSettings.external,
+                invalidTrashPath: savedSettings.invalidTrashPath,
+                invalidRetainPeriod: savedSettings.invalidRetainPeriod,
+              }
             : savedSettings;
         });
         setError('');
@@ -199,6 +205,9 @@ export function Configuration({
                   scheduleSave({ trashPath });
                 }}
               />
+              {settings.invalidTrashPath && (
+                <InvalidValueMessage invalidValue={settings.invalidTrashPath} />
+              )}
               <HistoryRetention
                 initialValue={settings.retainPeriod}
                 disabled={busy || resetting}
@@ -207,6 +216,9 @@ export function Configuration({
                 }}
                 onInvalid={cancelRetentionSave}
               />
+              {settings.invalidRetainPeriod && (
+                <InvalidValueMessage invalidValue={settings.invalidRetainPeriod} />
+              )}
               <ReviewPaths
                 initialPaths={settings.requireReview ?? []}
                 savedPaths={savedReview}
@@ -237,6 +249,18 @@ export function Configuration({
         </Group>
       </Stack>
     </section>
+  );
+}
+
+/**
+ * Shows the error for a value in the configuration file that could not be applied,
+ * which the built-in value replaces.
+ */
+function InvalidValueMessage({ invalidValue }: { invalidValue: string }) {
+  return (
+    <Text size="sm" c="red" role="alert">
+      {formatText(appstrings.invalidConfigValue, { value: invalidValue })}
+    </Text>
   );
 }
 

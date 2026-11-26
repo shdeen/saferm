@@ -80,6 +80,7 @@ trash = "Trash Path"
 retention = "Retain (days)"
 review = "Require Review"
 empty = "none"
+invalidValue = "Error: the configuration file's value {{.}} can't be used. SafeRM uses the built-in value instead."
 
 [status]
 "1" = "completed"

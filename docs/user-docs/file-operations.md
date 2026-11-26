@@ -24,7 +24,7 @@ The occupant's delete is the move's **blocker**. It carries the move's reason, r
 
 The two actions do not succeed or fail together. The occupant can already be in trash while the move is pending, denied, or failed. Check both actions before retrying, and see [Restore after a replacement](recovery.md#restore-after-a-replacement) to undo one.
 
-Replacement needs a usable `trash-path`. SafeRM refuses a replacement that would move the trash directory, including through a symbolic link inside the source.
+SafeRM refuses a replacement that would move the trash directory, including through a symbolic link inside the source.
 
 ## Paths
 
@@ -41,4 +41,4 @@ A copy between filesystems handles regular files, folders, and symbolic links. I
 
 Ctrl-C stops a copy in progress, and SafeRM still records the outcome. A crash or power loss during an operation can leave the action marked in progress; see [Interrupted or ambiguous operations](troubleshooting.md#interrupted-or-ambiguous-operations).
 
-Revised 2026-11-25
+Revised 2026-11-26

@@ -1,6 +1,6 @@
 # CLI output and JSON reference
 
-Without `-j` (`--json`), `saferm` prints text for people to read: a summary of each action a command created or changed, a table for `list`, one line per detail for `view`, and the settings for `config`. Text output shows times in local time, `(unset)` for a missing value, and `none` for an empty list of review rules. For scripts, use JSON.
+Without `-j` (`--json`), `saferm` prints text for people to read: a summary of each action a command created or changed, a table for `list`, one line per detail for `view`, and the settings for `config`, with an error below any setting whose value in the file SafeRM can't use. Text output shows times in local time, `(unset)` for a missing value, and `none` for an empty list of review rules. For scripts, use JSON.
 
 ## JSON output
 
@@ -77,13 +77,15 @@ The action object of a completed delete, for example:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `trashPath` | String or null | `trash-path` setting. |
-| `retainPeriod` | Integer or null | `retain-period` setting. |
+| `trashPath` | String | `trash-path` setting, or the built-in trash directory when the file leaves it out, sets it blank, or sets a value SafeRM can't use. |
+| `retainPeriod` | Integer | `retain-period` setting, or the built-in retention period when the file leaves it out or sets a value SafeRM can't use. |
 | `requireReview` | Array of strings or null | `require-review` setting. An empty array in the built-in values. |
 | `path` | String | Path of the configuration file. Empty for `config --default`. |
 | `external` | Boolean | `true` when read from the configuration file, `false` for the built-in values. |
+| `invalidTrashPath` | String | The file's `trash-path` value that SafeRM can't use, as written. Omitted when there is none. |
+| `invalidRetainPeriod` | String | The file's `retain-period` value that SafeRM can't use, as written. Omitted when there is none. |
 
-A setting missing from the file is `null`.
+A `require-review` missing from the file is `null`.
 
 ### Confirmation questions
 
@@ -145,4 +147,4 @@ A warning that a notification couldn't be delivered is timestamped text on stand
 - Exit status 1 doesn't mean that nothing was recorded. While the review rules hold a malformed rule, a delete or move is recorded as pending and exits with 1.
 - After exit status 1, inspect the partial results and the actual paths before retrying. See [Troubleshooting](troubleshooting.md).
 
-Revised 2026-11-25
+Revised 2026-11-26

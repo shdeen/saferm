@@ -27,21 +27,22 @@ saferm config            # Shows all settings in effect, and where they come fro
 saferm config --setup    # Create the config file at `~/.saferm/config.toml` using program defaults
 ```
 
-`--setup` leaves an existing file unchanged. Edit the file in a text editor, or use **Settings** in the desktop app. The app saves each change automatically and rewrites the whole file in its own layout, which drops comments and custom formatting. The app accepts only an existing folder as the trash path, and it doesn't save a malformed review rule.
+`--setup` leaves an existing file unchanged. Edit the file in a text editor, or use **Settings** in the desktop app. The app saves each change automatically and rewrites the whole file in its own layout, which drops comments and custom formatting. The rewritten file holds the values in effect, so a value SafeRM couldn't use is replaced by the built-in one. The app accepts only an existing folder as the trash path, and it doesn't save a malformed review rule.
 
 To replace the file with the built-in values, run `saferm config --setup --reset`, or use **Reset to defaults** in the app. Both ask first when a file exists. In the CLI, an empty answer means yes.
 
-## A key missing from the file is unset
+## Missing and unusable values
 
-Once the file exists, SafeRM uses only what it contains. A missing key does not fall back to its built-in value.
+SafeRM always has a trash directory and a retention period. It uses the built-in value in these cases:
 
-| Missing key | Effect |
-| --- | --- |
-| `trash-path` | Deletes, replacements, approvals of pending deletes, and restores and purges of deleted items fail. Ordinary moves still work. |
-| `retain-period` | Cleanup fails. |
-| `require-review` | Nothing needs approval. An empty array has the same effect. |
+- `trash-path`: the file leaves it out or sets it blank, or sets something SafeRM can't use as a folder: a value that isn't a string, a file, a path through a file, or a path that can't be resolved, such as one through a loop of symbolic links. A folder that doesn't exist yet can be used; SafeRM creates it on the first delete.
+- `retain-period`: the file leaves it out, or sets anything other than a whole number of 0 or more.
 
-SafeRM ignores keys it doesn't recognize, including misspelled ones. A blank `trash-path` or a negative `retain-period` makes whatever needs that setting fail with `setting is invalid`. A malformed review rule doesn't stop a request from being recorded: every delete and move is recorded as pending, reports the rule as an error, and exits with status 1; see [Empty and malformed rules](review.md#empty-and-malformed-rules). A file that isn't valid TOML stops every command except `saferm help`, `saferm config --default`, and `saferm config --setup`.
+When the file sets a value that SafeRM can't use, `saferm config` shows an error below that setting that names the value from the file, in red on a terminal. The desktop app's **Settings** page shows the same error. A missing or blank value shows no error.
+
+When the file leaves out `require-review`, there are no review rules and nothing needs approval. An empty array has the same effect.
+
+SafeRM ignores keys it doesn't recognize, including misspelled ones. A malformed review rule doesn't stop a request from being recorded: every delete and move is recorded as pending, reports the rule as an error, and exits with status 1; see [Empty and malformed rules](review.md#empty-and-malformed-rules). A file that isn't valid TOML, or whose `require-review` isn't an array of strings, stops every command except `saferm help`, `saferm config --default`, and `saferm config --setup`.
 
 ## Change the trash directory
 
@@ -70,4 +71,4 @@ SafeRM creates these files and directories readable only by you.
 
 Uninstalling SafeRM leaves this directory in place.
 
-Revised 2026-11-25
+Revised 2026-11-26

@@ -37,7 +37,7 @@ Failure: {{value .Failure}}
 {{end}}{{end}}
 {{define "config"}}{{appstring "config.title"}}
 {{appstring "config.separator"}}
-{{if .External}}{{configField (appstring "config.source") .Path}}{{else}}{{configField (appstring "config.source") (appstring "display.embedded")}}{{end}}{{configField (appstring "config.trash") .TrashPath}}{{configField (appstring "config.retention") .RetainPeriod}}{{configField (appstring "config.review") .RequireReview}}{{end}}
+{{if .External}}{{configField (appstring "config.source") .Path}}{{else}}{{configField (appstring "config.source") (appstring "display.embedded")}}{{end}}{{configField (appstring "config.trash") .TrashPath}}{{invalidValue .InvalidTrashPath}}{{configField (appstring "config.retention") .RetainPeriod}}{{invalidValue .InvalidRetainPeriod}}{{configField (appstring "config.review") .RequireReview}}{{end}}
 {{define "cleanup"}}Removed action records: {{len .Removed}}
 {{range .Removed}}  {{.}}
 {{end}}{{range .Problems}}{{.}}

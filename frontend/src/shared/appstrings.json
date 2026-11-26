@@ -135,6 +135,7 @@
   "validDirectory": "valid",
   "invalidDirectory": "directory does not exist",
   "invalidRetention": "not a valid number",
+  "invalidConfigValue": "The configuration file's value {value} can't be used. SafeRM uses the built-in value instead.",
   "invalidRule": "not a valid rule",
   "malformedRule": "A review rule is malformed. Every delete and move needs approval until it is fixed or removed.",
   "addReviewPath": "Add",

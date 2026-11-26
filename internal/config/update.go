@@ -39,7 +39,9 @@ func DirectoryExists(home, directoryPath string) (bool, error) {
 // changes to the loaded settings, writes the result to the configuration file,
 // and returns it. An empty RequireReview that is not nil clears the review
 // rules. When the changes contain none of the three, Update returns the loaded
-// settings without writing.
+// settings without writing. The written file holds the value in effect for
+// every setting, so a value that Load could not apply is replaced there by the
+// value that took its place.
 //
 // Update returns ErrConfigInvalid for a trash path that is not an existing
 // directory and for a negative retention period.
@@ -75,6 +77,7 @@ func Update(ctx context.Context, home string, changes Settings) (Settings, error
 	}
 
 	settings.External = true
+	settings.InvalidTrashPath, settings.InvalidRetainPeriod = "", ""
 
 	return settings, nil
 }

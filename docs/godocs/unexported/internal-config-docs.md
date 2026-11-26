@@ -15,13 +15,18 @@ Package config loads, decodes, installs, and updates the SafeRM configuration.
 - [func DirectoryExists\(home, directoryPath string\) \(bool, error\)](<#DirectoryExists>)
 - [func Home\(\) \(string, error\)](<#Home>)
 - [func Setup\(ctx context.Context, home string, confirmed bool\) error](<#Setup>)
+- [func applicableRetainPeriod\(fileValue any, embeddedDays \*int\) \(applicableDays \*int, invalidValue string\)](<#applicableRetainPeriod>)
+- [func applicableTrashPath\(fileValue any, home string, embeddedPath \*string\) \(applicablePath \*string, invalidValue string\)](<#applicableTrashPath>)
 - [func applySettingsChanges\(home string, settings \*Settings, changes Settings\) error](<#applySettingsChanges>)
+- [func decodeDocument\(document string, target any\) error](<#decodeDocument>)
+- [func trashUsable\(trashPath, home string\) bool](<#trashUsable>)
 - [type Settings](<#Settings>)
   - [func Decode\(document string\) \(Settings, error\)](<#Decode>)
   - [func Load\(home string\) \(Settings, error\)](<#Load>)
   - [func Update\(ctx context.Context, home string, changes Settings\) \(Settings, error\)](<#Update>)
   - [func \(settings Settings\) Retention\(\) \(int, error\)](<#Settings.Retention>)
   - [func \(settings Settings\) Trash\(home string\) \(string, error\)](<#Settings.Trash>)
+- [type fileSettings](<#fileSettings>)
 
 
 ## Constants
@@ -75,6 +80,24 @@ func Setup(ctx context.Context, home string, confirmed bool) error
 
 Setup writes DefaultDocument to the configuration file under the home directory, creating the SafeRM directory when it is absent. It replaces an existing file only when the caller has confirmed the replacement; otherwise it fails and leaves that file unchanged.
 
+<a name="applicableRetainPeriod"></a>
+## func applicableRetainPeriod
+
+```go
+func applicableRetainPeriod(fileValue any, embeddedDays *int) (applicableDays *int, invalidValue string)
+```
+
+applicableRetainPeriod returns the retention period that applies for a file's retain\-period value, together with that value as written when it can't be applied. The embedded retention period applies when the value is absent or can't be applied.
+
+<a name="applicableTrashPath"></a>
+## func applicableTrashPath
+
+```go
+func applicableTrashPath(fileValue any, home string, embeddedPath *string) (applicablePath *string, invalidValue string)
+```
+
+applicableTrashPath returns the trash path that applies for a file's trash\-path value, together with that value as written when it can't be applied. The embedded trash path applies when the value is absent, blank, or can't be applied.
+
 <a name="applySettingsChanges"></a>
 ## func applySettingsChanges
 
@@ -84,10 +107,28 @@ func applySettingsChanges(home string, settings *Settings, changes Settings) err
 
 applySettingsChanges validates each non\-nil field of the changes and copies it into the settings.
 
+<a name="decodeDocument"></a>
+## func decodeDocument
+
+```go
+func decodeDocument(document string, target any) error
+```
+
+decodeDocument parses a TOML document into the target. It returns ErrConfigDecode when the document is malformed or a value does not fit its field.
+
+<a name="trashUsable"></a>
+## func trashUsable
+
+```go
+func trashUsable(trashPath, home string) bool
+```
+
+trashUsable reports whether the path can serve as the trash directory: it resolves, and it names an existing directory or a directory that does not exist yet.
+
 <a name="Settings"></a>
 ## type Settings
 
-Settings holds a decoded configuration. A nil TrashPath, RetainPeriod, or RequireReview means that the configuration omits that key.
+Settings holds a decoded configuration. A nil TrashPath, RetainPeriod, or RequireReview means that the configuration omits that key. Settings returned by Load always have a TrashPath and a RetainPeriod.
 
 Note: the fields are listed by their Go names. The generated TypeScript bindings spell the same fields in a different letter case.
 
@@ -96,14 +137,18 @@ Note: the fields are listed by their Go names. The generated TypeScript bindings
 - RequireReview: the review patterns; a delete or move that affects an item they protect needs approval
 - Path: the location of the configuration file, whether or not the file exists
 - External: whether the settings came from that file instead of DefaultDocument
+- InvalidTrashPath: the file's trash\-path value, as written, when it can't be applied and TrashPath holds the value of DefaultDocument instead; empty otherwise
+- InvalidRetainPeriod: the file's retain\-period value, as written, when it can't be applied and RetainPeriod holds the value of DefaultDocument instead; empty otherwise
 
 ```go
 type Settings struct {
-    TrashPath     *string  `json:"trashPath"     toml:"trash-path"`
-    RetainPeriod  *int     `json:"retainPeriod"  toml:"retain-period"`
-    RequireReview []string `json:"requireReview" toml:"require-review"`
-    Path          string   `json:"path"          toml:"-"`
-    External      bool     `json:"external"      toml:"-"`
+    TrashPath           *string  `json:"trashPath"                     toml:"trash-path"`
+    RetainPeriod        *int     `json:"retainPeriod"                  toml:"retain-period"`
+    RequireReview       []string `json:"requireReview"                 toml:"require-review"`
+    Path                string   `json:"path"                          toml:"-"`
+    External            bool     `json:"external"                      toml:"-"`
+    InvalidTrashPath    string   `json:"invalidTrashPath,omitempty"    toml:"-"`
+    InvalidRetainPeriod string   `json:"invalidRetainPeriod,omitempty" toml:"-"`
 }
 ```
 
@@ -125,6 +170,8 @@ func Load(home string) (Settings, error)
 
 Load returns the settings decoded from the configuration file under the home directory, or from DefaultDocument when no such file exists. A dangling symbolic link in the file's place is a read error, not an absent file.
 
+The value of DefaultDocument takes the place of a trash\-path that the file omits, sets blank, or sets to a value that can't be applied, and of a retain\-period that the file omits or sets to a value that can't be applied. A trash\-path can't be applied when it is not a string, when it does not resolve, or when it names something other than a directory; a directory that does not exist yet is created on the first delete. A retain\-period can't be applied when it is not a whole number of 0 or more. Load reports each value that can't be applied, as written, in InvalidTrashPath or InvalidRetainPeriod.
+
 <a name="Update"></a>
 ### func Update
 
@@ -132,7 +179,7 @@ Load returns the settings decoded from the configuration file under the home dir
 func Update(ctx context.Context, home string, changes Settings) (Settings, error)
 ```
 
-Update applies the non\-nil TrashPath, RetainPeriod, and RequireReview of the changes to the loaded settings, writes the result to the configuration file, and returns it. An empty RequireReview that is not nil clears the review rules. When the changes contain none of the three, Update returns the loaded settings without writing.
+Update applies the non\-nil TrashPath, RetainPeriod, and RequireReview of the changes to the loaded settings, writes the result to the configuration file, and returns it. An empty RequireReview that is not nil clears the review rules. When the changes contain none of the three, Update returns the loaded settings without writing. The written file holds the value in effect for every setting, so a value that Load could not apply is replaced there by the value that took its place.
 
 Update returns ErrConfigInvalid for a trash path that is not an existing directory and for a negative retention period.
 
@@ -153,5 +200,18 @@ func (settings Settings) Trash(home string) (string, error)
 ```
 
 Trash returns the absolute path of the trash directory, expanding a leading \~ to the home directory. It returns ErrConfigMissing when trash\-path is omitted and ErrConfigInvalid when it is blank.
+
+<a name="fileSettings"></a>
+## type fileSettings
+
+fileSettings holds the keys of a configuration file before Load checks that their values can be applied. A nil TrashPath or RetainPeriod means that the file omits that key; any other value has the type that the file gave it.
+
+```go
+type fileSettings struct {
+    TrashPath     any      `toml:"trash-path"`
+    RetainPeriod  any      `toml:"retain-period"`
+    RequireReview []string `toml:"require-review"`
+}
+```
 
 Generated by [gomarkdoc](<https://github.com/princjef/gomarkdoc>)

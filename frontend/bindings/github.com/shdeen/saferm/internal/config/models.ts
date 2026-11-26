@@ -3,7 +3,8 @@
 
 /**
  * Settings holds a decoded configuration. A nil TrashPath, RetainPeriod, or
- * RequireReview means that the configuration omits that key.
+ * RequireReview means that the configuration omits that key. Settings returned
+ * by Load always have a TrashPath and a RetainPeriod.
  * 
  * Note: the fields are listed by their Go names. The generated TypeScript
  * bindings spell the same fields in a different letter case.
@@ -12,6 +13,8 @@
  *   - RequireReview: the review patterns; a delete or move that affects an item they protect needs approval
  *   - Path: the location of the configuration file, whether or not the file exists
  *   - External: whether the settings came from that file instead of DefaultDocument
+ *   - InvalidTrashPath: the file's trash-path value, as written, when it can't be applied and TrashPath holds the value of DefaultDocument instead; empty otherwise
+ *   - InvalidRetainPeriod: the file's retain-period value, as written, when it can't be applied and RetainPeriod holds the value of DefaultDocument instead; empty otherwise
  */
 export interface Settings {
     "trashPath": string | null;
@@ -19,4 +22,6 @@ export interface Settings {
     "requireReview": string[] | null;
     "path": string;
     "external": boolean;
+    "invalidTrashPath"?: string;
+    "invalidRetainPeriod"?: string;
 }
