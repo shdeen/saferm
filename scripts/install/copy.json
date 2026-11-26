@@ -1,0 +1,35 @@
+{
+  "shell": {
+    "error_prefix": "SafeRM installation failed: %s\n",
+    "unsupported": "Supported systems are macOS 13 or later and Linux with APT or DNF, on AMD64 or ARM64.",
+    "download_tool": "Install curl or wget, then run this installer again.",
+    "checksum_tool": "Install sha256sum or shasum, then run this installer again.",
+    "invalid_version": "SAFERM_VERSION must be a version such as 1.2.3 or v1.2.3.",
+    "download_failed": "Could not download %s",
+    "checksum_failed": "The package checksum did not match. Nothing was installed.",
+    "admin_required": "Administrator access is required. Install sudo or run the installer as root on Linux.",
+    "mac_root": "Run this installer as your normal macOS user. It will request administrator access if needed.",
+    "absolute_paths": "Installation directories must be absolute paths.",
+    "occupied_cli": "The CLI destination already contains a different program: %s",
+    "occupied_app": "The application destination is not a SafeRM bundle: %s",
+    "close_gui": "Close the SafeRM application, then run this installer again.",
+    "notifier_stop": "SafeRM Notify could not be stopped. Close it, then run this installer again.",
+    "notifier_restart": "SafeRM was installed, but SafeRM Notify could not be restarted.",
+    "installing": "Installing SafeRM %s for %s %s...\n",
+    "installed": "SafeRM %s is installed. Run saferm help, or open SafeRM from your applications menu.\n",
+    "missing_path": "Add %s to your PATH to run saferm by name.\n",
+    "shadowed_path": "Your shell currently finds another saferm at %s. The installed CLI is %s.\n"
+  },
+  "powershell": {
+    "unsupported": "SafeRM supports Windows on AMD64 and ARM64.",
+    "invalid_version": "SAFERM_VERSION must be a version such as 1.2.3 or v1.2.3.",
+    "invalid_directory": "SAFERM_INSTALL_DIR must be an absolute local directory path without quotes or newlines.",
+    "checksum_failed": "The package checksum did not match. Nothing was installed.",
+    "install_failed": "The SafeRM installer failed with exit code {0}. Close SafeRM before retrying.",
+    "missing_executable": "The installer did not create {0}.",
+    "cli_failed": "The installed SafeRM CLI could not run.",
+    "installing": "Installing SafeRM {0} for Windows {1}...",
+    "installed": "SafeRM {0} is installed. Run saferm help, or open SafeRM from the Start menu.",
+    "shadowed_path": "This terminal finds another saferm at {0}. The installed CLI is {1}."
+  }
+}
