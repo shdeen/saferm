@@ -1,0 +1,171 @@
+// Package review decides which delete and move requests need approval, by
+// testing the items that a request affects against the configured review
+// patterns.
+//
+// # Pattern rules
+//
+// A pattern describes an item by its name or by its path. Patterns are
+// compared with an item's real path, in which the symbolic links of the
+// directories that lead to the item are resolved.
+//
+// Two kinds of pattern:
+//   - A path pattern starts with / or ~/, is exactly ~, or has a / before its
+//     last character. On Windows, a pattern that starts with a drive, such as
+//     C:/, is also a path pattern. A path pattern is compared with an item's
+//     full path.
+//   - Every other pattern is a name pattern. It is compared with an item's own
+//     name, so it matches an item of that name in any directory. A / at the
+//     very end does not make a pattern a path pattern.
+//
+// The directory that a path pattern is measured from:
+//   - A pattern that starts with / describes a path from the root of the
+//     filesystem. / alone names the root directory.
+//   - A pattern that is ~, or that starts with ~/, describes a path from the
+//     home directory. ~ alone names the home directory.
+//   - Any other path pattern also describes a path from the root:
+//     build/output means /build/output.
+//   - On Windows, a pattern that starts with a drive describes a path from the
+//     root of that drive and applies only to that drive. Every other pattern
+//     that is measured from the root uses the root of the drive or network
+//     share that holds the tested item.
+//
+// Pattern text:
+//   - * matches any run of characters within one name, including none, and ?
+//     matches exactly one character. Neither matches /. A dot is an ordinary
+//     character to both.
+//   - A set matches exactly one character: [abc] one of the listed characters,
+//     [a-z] one character in the range, and [!abc] or [^abc] one character
+//     that is not listed. In a path pattern, that character can be a / when
+//     the set covers it.
+//   - {a,b} matches a or b, and each alternative may hold wildcards.
+//   - In a path pattern, ** as a whole name stands for zero or more
+//     directories: /a/** matches /a and everything inside it. Anywhere else,
+//     ** acts like *.
+//   - / separates directories on every system. On macOS and Linux, \ makes the
+//     next character literal, so \* matches a *. On Windows, \ separates
+//     directories. A set that lists one character, such as [*], matches exactly
+//     that character on every system. Every other character matches itself.
+//
+// A character means the same thing wherever it stands in a pattern. Every
+// name that holds a *, ?, [, {, or \ is compared by the matching library
+// exactly as written.
+//
+// A pattern that ends in / matches directories only. A symbolic link that
+// points to a directory counts as one, and so does a link whose target cannot
+// be inspected. A pattern that matches a directory protects everything inside
+// it: an item is protected when a pattern matches the item itself or a
+// directory above it.
+//
+// The fixed part of a path pattern is the directory that the pattern is
+// measured from, followed by the leading names up to the first name that holds
+// a *, ?, [, {, or \. The fixed part is a location on disk:
+//   - The symbolic links in its directories are resolved, so a pattern that is
+//     written through a link protects the real location. A fixed part that
+//     cannot be resolved is used as written.
+//   - Its names hold no character with a meaning in patterns, so each one
+//     names the same directory as plain text and as pattern text.
+//   - A pattern in which no name holds one of those characters spells out one
+//     item. When that item is a symbolic link, the pattern protects the link
+//     and the item that the link points to. Any other pattern that matches a
+//     link protects the link alone.
+//
+// Letter case matters for a name exactly when the directory that holds the
+// name treats two letter cases of it as two names. For a name pattern, the
+// directory of the item decides. The names of a fixed part are compared one
+// at a time, each by its own directory. The rest of a path pattern is compared
+// in one piece, and the directory of the deepest name that has letters decides
+// for the whole piece.
+//
+// An empty pattern is ignored. A pattern is malformed when its text, without
+// a trailing /, holds a set or alternatives that are not closed, a set that
+// lists no character, a } with no opening {, or on macOS and Linux a \ at its
+// end. A malformed pattern protects every item.
+//
+// # Requests
+//
+// A request affects its source, every directory above the source, and, when
+// the source is a directory, every item inside it. It needs approval when a
+// pattern protects any of them.
+package review
+
+import (
+	"fmt"
+	"path/filepath"
+	"strings"
+
+	"github.com/bmatcuk/doublestar/v4"
+	"github.com/shdeen/saferm/internal/appstrings"
+	"github.com/shdeen/saferm/internal/errs"
+)
+
+// Malformed reports whether the pattern is malformed, as the package's pattern
+// rules define it. An empty pattern is not malformed.
+func Malformed(pattern string) bool {
+	return !doublestar.ValidatePattern(strings.TrimSuffix(filepath.ToSlash(pattern), "/"))
+}
+
+// Validate returns ErrRuleMalformed, with a message that names the pattern, for
+// the first malformed pattern in the list. It returns nil when the list holds
+// none.
+func Validate(patterns []string) error {
+	for _, pattern := range patterns {
+		if Malformed(pattern) {
+			return fmt.Errorf(appstrings.Text("error.ruleMalformedDetail"), pattern, errs.ErrRuleMalformed) //nolint:err113 // The catalog's %w wraps the static sentinel; copy remains externalized.
+		}
+	}
+
+	return nil
+}
+
+// Match returns the pattern that makes a delete or move of the source need
+// approval, or an empty pattern when the request needs none. The patterns
+// follow the package's pattern rules.
+//   - source: the absolute path of the request's source, with the symbolic
+//     links of its parent directories resolved
+//   - isDirectory: whether the source is a directory itself, not a link to one
+//   - home: the home directory, whose symbolic links Match resolves
+//
+// Match reports one pattern, chosen by list order:
+//   - the first pattern in the list that protects the source;
+//   - when none protects the source and the source is a directory, the first
+//     pattern in the list that protects an item inside it.
+//
+// Match reads inside the source only when no pattern protects the source, and
+// only directories that some pattern could protect an item inside. A name
+// pattern always could. A path pattern could only when its fixed part is that
+// directory, is inside it, or is above it. Match does not follow the symbolic
+// links inside the source: it judges each link as an item under its own name
+// and path.
+//
+// When no item that Match can see is protected and it could not read a
+// directory, it returns the first pattern in the list that could protect an
+// item inside an unreadable directory, together with every unreadable
+// directory. In every other case, unreadableDirectories is nil. With no
+// patterns, Match reads nothing.
+func Match(patterns []string, source string, isDirectory bool, home string) (pattern string, unreadableDirectories []string) {
+	volume, sourceNames := splitPath(source)
+	matcher := requestMatcher{rules: parseRules(patterns, resolveLinks(home), volume), volume: volume, ignoresCase: make(map[string]bool), source: source}
+
+	matcher.protectingRule = len(matcher.rules)
+	for depth := 0; depth <= len(sourceNames) && matcher.protectingRule > 0; depth++ {
+		matcher.protectingRule = matcher.findRule(sourceNames[:depth], matcher.protectingRule)
+	}
+
+	if isDirectory && len(matcher.rules) > 0 && matcher.protectingRule == len(matcher.rules) {
+		filepath.WalkDir(source, matcher.visitItem) //nolint:errcheck,gosec // visitItem returns only nil, SkipDir, and SkipAll, and WalkDir returns none of them as an error.
+	}
+
+	if matcher.protectingRule < len(matcher.rules) {
+		return matcher.rules[matcher.protectingRule].pattern, nil
+	}
+
+	for index := range matcher.rules {
+		for _, directory := range matcher.unreadableDirectories {
+			if _, directoryNames := splitPath(directory); matcher.appliesInside(&matcher.rules[index], directoryNames) {
+				return matcher.rules[index].pattern, matcher.unreadableDirectories
+			}
+		}
+	}
+
+	return "", nil
+}
