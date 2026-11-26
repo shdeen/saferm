@@ -1,20 +1,66 @@
-# SafeRM
 
-SafeRM gives AI coding agents a safer alternative to `rm` and `mv`. An agent runs `saferm delete` or `saferm move` like any other shell command. A delete moves the item to a trash directory and records where it came from. A move records the item's original location and—when necessary—makes overwrites restorable so that no action is permanently destructive. Each action is recorded with the agent's stated reason, so that it can be reviewed and restored later if necessary. Review rules add a measure of protection for sensitive paths, by holding a move or delete until you explicitly approve or deny it.
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/shdeen/saferm/desktop.yml?style=for-the-badge)
+![GitHub License](https://img.shields.io/github/license/shdeen/saferm?style=for-the-badge)
 
-SafeRM runs on macOS, Linux, and Windows. It consists of three programs that share one per-user configuration and action history:
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="images/saferm-logo-horizontal-dark.svg">
+    <img src="images/saferm-logo-horizontal-light.svg" alt="SafeRM" width="400">
+  </picture>
+</h1>
 
-| Program | Purpose |
-| --- | --- |
-| **`saferm`** | CLI utility for both agents and humans |
-| **SafeRM App** | Desktop app for reviewing requests and managing recovery. |
-| **SafeRM Notify** | Optional background process for pending requests. |
+[Overview](#overview) | [Demo](#demo) | [Install](#install) | [Agent Instructions](#agent-instructions) | [Monitor and restore](#monitor-and-restore) | [Configuration](#configuration) | [Recovery and permanent deletion](#recovery-and-permanent-deletion) | [Commands](#commands) | [Documentation](#documentation)
 
-The CLI and the desktop app have full feature parity. Agents use the CLI. You can use either one to monitor actions, decide pending requests, and restore items.
+## Overview
 
-## What SafeRM does not protect
+SafeRM gives AI coding agents a safer alternative to `rm` and `mv`, with a dedicated agent "trash bin."
 
-SafeRM does not intercept `rm`, `mv`, or any other program that changes files. Only deletes and moves made through `saferm` are recoverable, so tell your agent to use it.
+Your agent can run `saferm delete` or `saferm move` like any other shell command.
+
+- A delete moves the item to a trash directory and records where it came from.
+- A move records the item's original location and—when necessary—makes overwrites restorable so that no action is permanently destructive.
+- Each action is recorded with the agent's stated reason, so that it can be reviewed and restored later if necessary.
+- Review rules add a measure of protection for sensitive paths, by holding a move or delete until you explicitly approve or deny it.
+
+SafeRM runs on macOS, Linux, and Windows, and comes in a CLI or GUI app.
+
+- **`saferm`**: CLI utility for both agents and humans.
+- **SafeRM App**: Desktop app for reviewing requests and managing recovery.
+- **SafeRM Notify**: For optional notifications on requests held for approval.
+
+The CLI and the desktop app have full feature parity. Agents use the CLI, while users can use either one to monitor actions, decide pending requests, and restore items.
+
+**Note**: SafeRM does not intercept `rm`, `mv`, or any other commands. Only deletes and moves made through `saferm` are recoverable, so tell your agent to use it.
+
+To block direct use of `rm`, `mv`, or other destructive commands, refer to your agent harness documentation.
+
+- **Claude Code**: [https://code.claude.com/docs/en/permissions](https://code.claude.com/docs/en/permissions)
+- **Codex**: [https://learn.chatgpt.com/docs/permissions](https://learn.chatgpt.com/docs/permissions)
+- **Other**: refer to your specific agent harness documentation for permission configurations.
+
+**SafeRM protects every delete and move without any configuration.** When an agent runs `saferm delete` or `saferm move`, the action completes immediately and nothing is permanently destroyed. You can restore the item with `saferm restore` or the app's **Restore** button.
+
+For extra protection, you can configure glob patterns for sensitive locations. A delete or move that matches a pattern is held as `pending` until you approve or deny it.
+
+To set up review rules, run `saferm config --setup` to create `~/.saferm/config.toml`, then add your patterns to its `require-review` array:
+
+```toml
+require-review = ["~/.*", "**/.git/", ".env*"]
+```
+
+You can also add them under **Settings** in the desktop app. [Reviewing requests](docs/user-docs/review.md) describes the pattern syntax.
+
+## Demo
+
+![Terminal session: saferm delete records a pending request for .env.production, saferm list shows it with another pending request and several completed actions, and saferm dispose 1131 approve completes it](images/cli-pending-request.gif)
+
+The desktop app's **Operations** page lists pending requests first, with **Deny** and **Approve**. Completed actions have **Restore**:
+
+![SafeRM desktop app Operations page with two pending requests above completed deletes](images/app-operations-page.png)
+
+SafeRM Notify shows each pending request as a desktop notification:
+
+<img src="images/notify-pending-request.png" alt="macOS notification titled Move: .env, requested by Claude Code, with Approve, Deny, and Review options" width="382">
 
 ## Install
 
@@ -32,8 +78,6 @@ Requires `curl` or `wget` for downloads and `sha256sum` or `shasum` for verifica
 | Ubuntu 24.04 or a compatible APT system | Installs the DEB package and its runtime dependencies. |
 | Fedora 44 or a compatible DNF system | Installs the RPM package and its runtime dependencies. |
 
-On **Linux**, .rpm and .deb packages support AMD64 and ARM64. All packages install to `/usr/lib/saferm`, link the CLI at `/usr/bin/saferm`, and add SafeRM to the applications menu. Other distributions must provide the GTK 4 and WebKitGTK 6 runtime dependencies that the packages require.
-
 ### Windows
 
 Run this in PowerShell 5.1 or later:
@@ -42,38 +86,25 @@ Run this in PowerShell 5.1 or later:
 irm https://github.com/shdeen/saferm/releases/latest/download/install.ps1 | iex
 ```
 
-The installer selects AMD64 or ARM64, runs the per-user Windows installer, and installs WebView2 if it is missing. The installation directory is added to your `PATH` and to the current PowerShell session.
-
-The default location is the `AppData\Local\Programs\SafeRM` directory in your user profile.
-
-[Installation](docs/user-docs/installation.md) lists the installer variables for choosing a version or an install location.
-
-### Upgrade
-
-Close SafeRM, then run the same install command again. A download or checksum failure leaves the existing installation unchanged. Installing and upgrading keep your SafeRM history, configuration, and retained files.
-
-### Install a downloaded package
-
-Each release on the [Releases page](https://github.com/shdeen/saferm/releases) lists its packages individually, one for each operating system and processor. A completed GitHub Actions run lists its packages under **Artifacts**; downloading them requires signing in to GitHub. On Linux, `uname -m` reports `x86_64` for AMD64 and `aarch64` for ARM64.
-
-| System | Package | How to install it |
-| --- | --- | --- |
-| Ubuntu 24.04 or a compatible APT system | `.deb` | In the download directory, run `sudo apt install ./FILENAME.deb` with the downloaded filename. |
-| Fedora 44 or a compatible DNF system | `.rpm` | In the download directory, run `sudo dnf install ./FILENAME.rpm` with the downloaded filename. |
-| macOS | `.dmg` | Open the disk image and drag SafeRM to Applications. The CLI is inside the app at `/Applications/SafeRM.app/Contents/MacOS/saferm`. |
-| Windows | `.exe` | Run the downloaded installer. |
+The installer adds SafeRM to your `PATH`, including in the current PowerShell session, and installs WebView2 if it is missing.
 
 ### After installation
 
 Open SafeRM once from your applications menu. Its first launch sets the notifier to start when you log in. On macOS, approve the login item and notifications in System Settings if asked.
 
-### Uninstall
+### Install the CLI only
 
-On Linux, run `sudo apt remove saferm-app` or `sudo dnf remove saferm-app`. On Windows, use **Installed apps**; this also removes SafeRM's directory from your user `PATH`. On macOS, delete `/Applications/SafeRM.app` and the `saferm` link. Uninstalling leaves `~/.saferm` in place, with your configuration, history, and the default trash directory.
+The CLI works without the desktop app and the notifier. To install only the CLI, [install Go](https://go.dev/dl/) 1.27 or later, then run:
 
-## Give `saferm` to your agent
+```sh
+go install github.com/shdeen/saferm/cmd/saferm@latest
+```
 
-Add an instruction like this to your agent's instruction file, such as `AGENTS.md` or `CLAUDE.md`:
+See [Installation](docs/user-docs/installation.md) for installing specific versions, other install locations, package downloads, upgrading, and uninstalling.
+
+## Agent Instructions
+
+Add this to your agent's instruction file, such as `AGENTS.md` or `CLAUDE.md`:
 
 ```markdown
 Use `saferm` for file deletes and moves. It keeps them recoverable.
@@ -82,31 +113,24 @@ Use `saferm` for file deletes and moves. It keeps them recoverable.
 - Move: `saferm move "<source>" "<destination>" "<reason>"`
 - The reason should say why the change is needed.
 - A `pending` result means the path needs the user's approval. Report the action ID to the user.
-- Run `saferm help` for detailed usage.
+- Use `saferm help` for full usage instructions.
 ```
 
-Each command prints the action's ID and status. An agent can add `--requester "<name>"` to record which agent made the request; SafeRM shows the name with the action but does not verify it.
-
-A delete or move whose source matches a [review rule](#review-rules) returns `pending`, and the item stays in place until you approve or deny the request.
-
-With `-j` (`--json`), the CLI writes results and errors as JSON. A pending request and a declined confirmation both exit with status 0, so check each action's `status` as well as the exit status. See the [CLI output and JSON reference](docs/user-docs/cli-output.md).
+See [Agent setup](docs/user-docs/agents.md) for what the agent gets back and how to block direct `rm` and `mv`.
 
 ## Monitor and restore
 
-The desktop app's **Operations** page lists every action with its source path, reason, and requester, with pending requests first. From there you can approve or deny a pending request, restore a deleted or moved item to its original path, and permanently delete items from trash. The notifier, which comes with the desktop app, also shows each pending request as a desktop notification with **Approve**, **Deny**, and **Review**.
+The desktop app's **Operations** page lists every action with its path and reason, with pending requests first. From there you can approve or deny a pending request, restore an item to its original path, and permanently delete items from trash.
 
-In the CLI, a pending request appears in `saferm list` with the status `pending`:
+The CLI does the same:
 
 ```sh
-saferm list --status pending    # requests waiting for a decision
+saferm list                     # all actions
+saferm list --status pending    # requests waiting for your decision
 saferm view <id>                # one action's details
-saferm dispose <id> approve     # or: saferm dispose <id> deny
 saferm restore <id>             # undo a delete or move
+saferm dispose <id> approve     # or: saferm dispose <id> deny
 ```
-
-## Review rules
-
-Review rules name the sensitive paths that SafeRM escalates to you. A delete or move of a matching path stays `pending`, with the item in place, until you approve or deny it. Rules are patterns in the `require-review` list of `~/.saferm/config.toml`, which the desktop app's **Settings** page also edits. See [Reviewing requests](docs/user-docs/review.md) for the pattern syntax.
 
 ## Configuration
 
@@ -118,15 +142,15 @@ SafeRM's settings live in `~/.saferm/config.toml`. Run `saferm config --setup` t
 | `retain-period` | Days that a resolved action stays in history before `saferm cleanup` can remove its record. It never erases items from trash. |
 | `require-review` | Patterns for sensitive paths that need your approval. |
 
-Once the file exists, a key missing from it is unset; it doesn't fall back to its built-in value. Changing `trash-path` doesn't move existing trash; see [Change the trash directory](docs/user-docs/configuration.md#change-the-trash-directory).
+See [Configuration](docs/user-docs/configuration.md) for details.
 
 ## Recovery and permanent deletion
 
-- To restore an item to a path that a new item now occupies, use `--overwrite` in the CLI, or **Allow replacement at the original path** in the desktop app. The new item goes to trash first.
+- To restore an item to a path that a new item now occupies, use `saferm restore --overwrite`, or **Allow replacement at the original path** in the desktop app. The new item goes to trash first.
 - `saferm purge <id>...` permanently erases deleted items from trash. It does not ask for confirmation, and it cannot be undone through SafeRM.
 - `saferm cleanup` removes history records according to `retain-period`. It never removes files. Once a completed move's record is removed, SafeRM can no longer reverse that move.
 
-SafeRM does not erase trash when the retention period expires. Read [Recovery and history](docs/user-docs/recovery.md) before you purge trash or clean up history.
+Read [Recovery and history](docs/user-docs/recovery.md) before you purge trash or clean up history.
 
 ## Commands
 
@@ -147,9 +171,12 @@ Run `saferm help <command>` or `saferm <command> -h` for a command's syntax and 
 
 ## Documentation
 
+The [documentation index](docs/user-docs/index.md) groups every page by purpose.
+
 - [Overview](docs/user-docs/overview.md)
 - [Quickstart](docs/user-docs/quickstart.md)
 - [Installation](docs/user-docs/installation.md)
+- [Agent setup](docs/user-docs/agents.md): instructions for your agent, its results, and blocking direct `rm` and `mv`.
 - [How deletes and moves work](docs/user-docs/file-operations.md): trash, recoverable overwrites, paths, and moves between filesystems.
 - [Reviewing requests](docs/user-docs/review.md): review rules and deciding pending requests.
 - [Recovery and history](docs/user-docs/recovery.md): restoring items, statuses, purging trash, and cleaning up history.
@@ -160,4 +187,4 @@ Run `saferm help <command>` or `saferm <command> -h` for a command's syntax and 
 - [Notifications](docs/user-docs/notifications.md): starting the notifier, notification actions, and diagnostics.
 - [Troubleshooting](docs/user-docs/troubleshooting.md): error messages and interrupted operations.
 
-Revised 2026-11-24
+Revised 2026-11-26

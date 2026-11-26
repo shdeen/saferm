@@ -478,7 +478,7 @@ jobs:
             echo '### Install a package from this run'
             echo
             echo 'The DEB is tested on Ubuntu 24.04 and the RPM on Fedora 44. Both are available for AMD64 and ARM64.'
-            printf '[Installation instructions](%s/%s/blob/%s/scripts/install/README.md#install-a-github-actions-build)\n\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+            printf '[Installation instructions](%s/%s/blob/%s/docs/user-docs/installation.md#install-a-package-yourself)\n\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_SHA"
             echo '### SHA-256 checksums'
             echo '```text'
             cat "release/saferm_${RELEASE_VERSION}_checksums.txt"

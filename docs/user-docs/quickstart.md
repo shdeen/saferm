@@ -29,10 +29,10 @@ Use `saferm` for file deletes and moves. It keeps them recoverable.
 - Move: `saferm move "<source>" "<destination>" "<reason>"`
 - The reason should say why the change is needed.
 - A `pending` result means the path needs the user's approval. Report the action ID to the user.
-- Run `saferm help <command>` for a command's arguments and options.
+- Use `saferm help` for full usage instructions.
 ```
 
-SafeRM records the reason with each action. An agent can also pass `--requester "<name>"` to record which agent made the request.
+See [Agent setup](agents.md) for more info on agent setup.
 
 ## 3. Review your agent's actions
 
@@ -65,4 +65,4 @@ SafeRM's settings live in `~/.saferm/config.toml`. Run `saferm config --setup` t
 - [Recovery and history](recovery.md)
 - `saferm help <command>` for any command's options
 
-Revised 2026-11-25
+Revised 2026-11-26

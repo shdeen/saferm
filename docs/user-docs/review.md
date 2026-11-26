@@ -14,7 +14,7 @@ saferm view <id>
 saferm dispose <id> approve    # or: saferm dispose <id> deny
 ```
 
-The request's details show the source, the destination of a move, the reason, the requester, and the rule that made the request need approval.
+The request's details show the source, the destination of a move, the reason, the requester, and the rule that requires approval.
 
 Approving carries out the delete or move. If the source has disappeared or the destination has been taken since the request, approval fails and the request stays pending, so you can still deny it. Denying leaves the item untouched. A request can be decided only once.
 
@@ -22,7 +22,7 @@ Approval doesn't check the rules again, and changing the rules doesn't affect re
 
 ## Write review rules
 
-Rules are the `require-review` list in `~/.saferm/config.toml`. The desktop app edits the same list under **Settings → Paths requiring review**. The list is empty until you add a rule, and with an empty list no request needs approval.
+Rules are the `require-review` list in `~/.saferm/config.toml`. The desktop app edits the same list under **Settings → Paths requiring review**. The list starts empty, so no request needs approval until you add a rule.
 
 ```toml
 require-review = ["~/Documents/contracts/", "*.pem", "**/{secrets,credentials}/"]
@@ -49,7 +49,7 @@ On Windows, every other path rule that is measured from the root uses the root o
 
 To match in the home folder, write `~/build/output`. To match in any folder, write `**/build/output`.
 
-SafeRM compares rules with an item's real path, in which the symbolic links in the folders that lead to the item are resolved.
+SafeRM compares rules with an item's real path, after it resolves the symbolic links in the folders above the item.
 
 ### Wildcards, sets, and alternatives
 
@@ -81,16 +81,16 @@ Anywhere else, including in a name rule, `**` works like `*`.
 
 A rule that ends in `/` matches folders only. A symbolic link that points to a folder counts as a folder for this purpose, and so does a link whose target SafeRM can't inspect.
 
-A rule that matches a folder also protects everything inside it, at any depth. An item is protected when a rule matches the item itself or any folder above it. You don't need a second rule for a folder's contents.
+A rule that matches a folder also protects everything inside it, at any depth. An item is protected when a rule matches the item itself or any folder above it.
 
 ### Symbolic links
 
-A path rule that is written through a symbolic link protects the real location. If `~/DocsHome` is a link to `~/Docs Home`, the rule `~/DocsHome/Coding/` protects `~/Docs Home/Coding`. On macOS `/tmp` is a link to `/private/tmp`, so `/tmp/build-*` protects `/private/tmp/build-*`.
+A path rule that is written through a symbolic link protects the real location. If `~/MyDocuments` is a link to `~/My Documents`, the rule `~/MyDocuments/reports/` protects `~/My Documents/reports`. On macOS, `/tmp` is a link to `/private/tmp`, so `/tmp/build-*` protects `/private/tmp/build-*`.
 
 SafeRM follows links only in the folder names that a rule spells out:
 
-- It follows them in the folder the rule is measured from and in each name after it, and it stops at the first name that holds a `*`, `?`, `[`, `{`, or `\`. A name like that describes names, so SafeRM can't look it up on disk. In `~/Projects/*/secrets`, SafeRM follows links in `~/Projects` only.
-- A path rule in which no name holds one of those characters spells out the path of one item. When that item is a symbolic link, the rule protects both the link and the item it points to. The rule `~/DocsHome/` protects the link `~/DocsHome`, the folder `~/Docs Home`, and everything inside that folder.
+- SafeRM follows them in the folder that the rule is measured from and in each name after it. It stops at the first name that holds a `*`, `?`, `[`, `{`, or `\`, because a name like that stands for many names and can't be looked up on disk. In `~/Projects/*/secrets`, SafeRM follows links in `~/Projects` only.
+- A path rule in which no name holds one of those characters spells out the path of one item. When that item is a symbolic link, the rule protects both the link and the item it points to. The rule `~/MyDocuments/` protects the link `~/MyDocuments`, the folder `~/My Documents`, and everything inside that folder.
 - A folder that a link leads to keeps its exact name. If the link points to a folder named `Album[1]`, the rule means that folder, and not a folder named `Album1`.
 
 Any other rule that matches a link protects the link alone. That covers a name rule, and a path rule in which some name holds one of those characters.
@@ -100,7 +100,7 @@ Any other rule that matches a link protects the link alone. That covers a name r
 The folder that holds a name decides whether letter case matters for that name. If the folder treats `Notes` and `notes` as one name, rules do too. If it treats them as two names, case must match. macOS sets this for a whole volume. Windows and Linux can set it folder by folder.
 
 - A name rule is compared with one name, so that name's folder decides.
-- In a path rule, each folder name that the rule spells out, as [Symbolic links](#symbolic-links) describes, follows its own folder.
+- In a path rule, each name that the rule spells out is decided by its own folder. [Symbolic links](#symbolic-links) describes which names a rule spells out.
 - From the first name that holds a `*`, `?`, `[`, `{`, or `\`, the remaining names of a path rule are compared together. The deepest of them that has letters is the one whose folder decides for all of them.
 
 ### Separators and literal characters
@@ -135,7 +135,7 @@ Fix or remove the rule to end this. Requests that are already pending stay pendi
 
 ### Examples
 
-These examples use `/home/me` as the home folder. In the rows about links, `/home/me/DocsHome` is a symbolic link to the folder `/home/me/Docs Home`.
+These examples use `/home/me` as the home folder. In the rows about links, `/home/me/MyDocuments` is a symbolic link to the folder `/home/me/My Documents`.
 
 | Rule | Item | Protected |
 | --- | --- | --- |
@@ -158,8 +158,8 @@ These examples use `/home/me` as the home folder. In the rows about links, `/hom
 | `/{secrets,keys}/` | `/home/me/app/secrets/token` | No |
 | `~/Projects/**/secrets/` | `/home/me/Projects/a/b/secrets/token` | Yes |
 | `~/Projects/*/secrets/` | `/home/me/Projects/a/b/secrets/token` | No |
-| `~/DocsHome/` | `/home/me/Docs Home/Coding/x` | Yes |
-| `~/DocsHome/` | `/home/me/DocsHome`, the link itself | Yes |
+| `~/MyDocuments/` | `/home/me/My Documents/reports/x` | Yes |
+| `~/MyDocuments/` | `/home/me/MyDocuments`, the link itself | Yes |
 | `star[*]` | `/home/me/star*` | Yes |
 | `star[*]` | `/home/me/starx` | No |
 | `star\*` | `/home/me/star*`, on macOS or Linux | Yes |
@@ -191,7 +191,7 @@ SafeRM doesn't follow symbolic links when it checks the items inside a folder. E
 SafeRM reads inside the source only when no rule protects the source itself. It then reads a folder only when some rule could protect an item inside that folder:
 
 - a name rule always could;
-- a path rule could only when the path it spells out, up to its first name that holds a `*`, `?`, `[`, `{`, or `\`, is that folder, is inside it, or is above it.
+- a path rule could only when the path that it spells out is that folder, is inside it, or is above it. That path ends before the rule's first name that holds a `*`, `?`, `[`, `{`, or `\`.
 
 With `~/Contracts/` as the only rule, SafeRM reads nothing inside `~/Downloads/old`. With no rules, SafeRM reads nothing inside any source.
 
@@ -206,7 +206,7 @@ A request never fails because a folder can't be read. A folder that SafeRM has n
 
 ## Replacements
 
-A move that replaces an existing item creates two actions: the move, and a delete of the occupant, called the move's blocker. Rules apply to each of them separately. The occupant's delete is checked like any other delete, including what the occupant contains, and the move's destination is checked only through that delete:
+When a move replaces an existing item, SafeRM calls that item the occupant. The move creates two actions: the move and a delete of the occupant, which is called the move's blocker. Rules apply to each action separately. The occupant's delete is checked like any other delete, including the occupant's contents. The move's destination is checked only through that delete, with these results:
 
 | Occupant's delete needs approval | Move needs approval | Result |
 | --- | --- | --- |
@@ -226,4 +226,4 @@ Denying a move doesn't bring back an occupant that is already in trash. Restore 
 
 A restore that replaces an item creates a delete of the occupant in the same way. Restoring doesn't check the rules against the item being restored, and purge and cleanup don't use the rules.
 
-Revised 2026-11-25
+Revised 2026-11-26

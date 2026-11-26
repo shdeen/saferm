@@ -4,19 +4,23 @@ Each SafeRM package contains the CLI, the desktop app, and the notifier.
 
 ## macOS and Linux
 
+**Requires**: `curl` or `wget`, and `sha256sum` or `shasum`.
+
 ```sh
 curl -fsSL https://github.com/shdeen/saferm/releases/latest/download/install.sh | sh
 ```
 
-Run the script as your normal user. It asks for administrator access when it needs it. It requires `curl` or `wget`, and `sha256sum` or `shasum`.
+Run the script as your regular user. It asks for administrator access when it needs it.
 
-| System | Result |
-| --- | --- |
-| macOS 13 or later, Intel or Apple Silicon | `/Applications/SafeRM.app`, with the CLI linked at `/usr/local/bin/saferm`. |
-| Ubuntu 24.04 or a compatible APT system, AMD64 or ARM64 | DEB package. Programs in `/usr/lib/saferm`, with the CLI linked at `/usr/bin/saferm`. |
-| Fedora 44 or a compatible DNF system, AMD64 or ARM64 | RPM package, with the same locations as the DEB package. |
+| System                                | Installation                                                                               |
+| ------------------------------------- | ------------------------------------------------------------------------------------------ |
+| macOS 13 or later                     | `/Applications/SafeRM.app`, with the CLI linked at `/usr/local/bin/saferm`.                |
+| Ubuntu 24.04 or compatible APT system | DEB package. Programs go in `/usr/lib/saferm`, and the CLI is linked at `/usr/bin/saferm`. |
+| Fedora 44 or compatible DNF system    | RPM package, same locations as DEB.                                                        |
 
 Other Linux distributions must provide GTK 4 and WebKitGTK 6.
+
+On Linux, the script doesn't add an APT repository or an RPM signing key.
 
 ## Windows
 
@@ -26,52 +30,58 @@ In PowerShell 5.1 or later:
 irm https://github.com/shdeen/saferm/releases/latest/download/install.ps1 | iex
 ```
 
-SafeRM installs for the current user, by default in the `AppData\Local\Programs\SafeRM` directory of your profile. That directory is added to your user `PATH`, including in the current PowerShell session. The script installs WebView2 if it is missing.
+SafeRM installs for the current user, by default in `AppData\Local\Programs\SafeRM` in your profile. That directory is added to your user `PATH`, including in the current PowerShell session. The script installs WebView2 if it is missing.
 
-## Installer variables
+## Choose a version or install location
 
-| Variable | Platform | Effect |
-| --- | --- | --- |
-| `SAFERM_VERSION` | All | Install the given release instead of the latest. The version has three numbers and may start with `v`. |
-| `SAFERM_INSTALL_DIR` | macOS, Windows | Absolute path of the directory for `SafeRM.app` on macOS, or for the installation on Windows. |
-| `SAFERM_BIN_DIR` | macOS | Absolute path of the directory for the `saferm` link. The directory must be on your `PATH`. |
+The script uses the defaults below. To change one, set its environment variable before you run the install command.
 
-On Linux, the packages always use the locations above.
+| Variable             | Platforms      | Default                                                                                                         |
+| -------------------- | -------------- | --------------------------------------------------------------------------------------------------------------- |
+| `SAFERM_VERSION`     | All            | Latest release                                                                                                  |
+| `SAFERM_INSTALL_DIR` | macOS, Windows | `/Applications` on macOS. On Windows, `AppData\Local\Programs\SafeRM`, or an existing installation's directory. |
+| `SAFERM_BIN_DIR`     | macOS          | `/usr/local/bin`                                                                                                |
+
+Paths must be absolute. On macOS, if both directories already exist and are writable, the script doesn't ask for administrator access.
+
+## Install a package yourself
+
+Download the package for your operating system and processor from the [Releases page](https://github.com/shdeen/saferm/releases). (GitHub sign-in required.)
+
+| System                                  | Package | Install it with                                                                                                                 |
+| --------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| macOS                                   | `.dmg`  | Drag SafeRM to Applications. To run `saferm` by name, link `/Applications/SafeRM.app/Contents/MacOS/saferm` into a directory on your `PATH`. |
+| Windows                                 | `.exe`  | Run the installer.                                                                                                              |
+| Ubuntu 24.04 or a compatible APT system | `.deb`  | `sudo apt install ./<file>.deb`                                                                                                 |
+| Fedora 44 or a compatible DNF system    | `.rpm`  | `sudo dnf install ./<file>.rpm`                                                                                                 |
+
+## Install the CLI only
+
+The CLI works without the desktop app and the notifier. To install only the CLI, [install Go](https://go.dev/dl/) 1.27 or later, then run:
 
 ```sh
-curl -fsSL https://github.com/shdeen/saferm/releases/latest/download/install.sh | SAFERM_VERSION=<version> sh
+go install github.com/shdeen/saferm/cmd/saferm@latest
 ```
 
-```powershell
-$env:SAFERM_VERSION = '<version>'
-irm https://github.com/shdeen/saferm/releases/latest/download/install.ps1 | iex
-```
+Go installs `saferm` in its `bin` directory, usually `~/go/bin`. That directory must be on your `PATH`.
+
+Without the notifier, check for pending requests with `saferm list --status pending`.
+
+## After installation
+
+Open SafeRM once from the applications menu. On its first launch, SafeRM sets the notifier to start when you log in. On macOS, approve the login item and notifications in System Settings if asked. See [Notifications](notifications.md).
 
 ## Upgrade
 
 Close SafeRM and run the install command again. Your configuration, history, and trash are kept. If the download or checksum check fails, the installed version stays in place. On Windows, an upgrade keeps the existing installation directory unless `SAFERM_INSTALL_DIR` names another one.
 
-## Install a package yourself
-
-The [Releases page](https://github.com/shdeen/saferm/releases) lists each release's packages by operating system and processor. A completed GitHub Actions run lists its packages under **Artifacts**, which requires signing in to GitHub. On Linux, `uname -m` reports `x86_64` for AMD64 and `aarch64` for ARM64.
-
-| System | Package | Install it with |
-| --- | --- | --- |
-| Ubuntu 24.04 or a compatible APT system | `.deb` | `sudo apt install ./<file>.deb` |
-| Fedora 44 or a compatible DNF system | `.rpm` | `sudo dnf install ./<file>.rpm` |
-| macOS | `.dmg` | Drag SafeRM to Applications. The CLI is at `/Applications/SafeRM.app/Contents/MacOS/saferm`; link it onto your `PATH` yourself. |
-| Windows | `.exe` | Run the installer. |
-
-## After installation
-
-Open SafeRM once from your applications menu. Its first launch sets the notifier to start when you log in. On macOS, approve the login item and notifications in System Settings if asked. See [Notifications](notifications.md).
-
 ## Uninstall
 
-- **Linux:** `sudo apt remove saferm-app` or `sudo dnf remove saferm-app`.
-- **Windows:** remove SafeRM in **Installed apps**. This also removes its directory from your user `PATH`.
 - **macOS:** delete `/Applications/SafeRM.app` and the `saferm` link.
+- **Windows:** remove SafeRM in **Installed apps**. This also removes its directory from your user `PATH`.
+- **Linux:** `sudo apt remove saferm-app` or `sudo dnf remove saferm-app`.
+- **CLI installed with Go:** delete `saferm` from the directory Go put it in.
 
 Uninstalling leaves `~/.saferm` in place, with your configuration, history, and the default trash directory.
 
-Revised 2026-11-24
+Revised 2026-11-26
