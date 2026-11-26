@@ -1,0 +1,3 @@
+trash-path = "~/.saferm/trash"
+retain-period = 30
+require-review = []
