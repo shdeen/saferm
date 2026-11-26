@@ -1,0 +1,44 @@
+{{define "failure"}}{{.}}
+{{end}}
+{{define "notice"}}{{.}}
+{{end}}
+{{define "summary"}}{{range .Actions}}Action {{.ID}}: {{operation .Type}} — {{status .Status}}
+Source: {{.Source}}
+{{if .Destination}}Destination: {{.Destination}}
+{{end}}{{if .TrashID}}Trash item: {{.TrashID}}
+{{end}}{{if and (eq .Status 2) .ReviewRule}}Approval required by rule: {{.ReviewRule}}
+{{end}}{{if .BlockerID}}{{appstring "display.blocker"}}: {{.BlockerID}}
+{{end}}{{if .InProgress}}The recorded operation is in progress or was interrupted.
+{{end}}{{end}}{{range .Problems}}{{.}}
+{{end}}{{end}}
+{{define "list"}}ID	Date	Operation	Status	Source
+{{range .Actions}}{{.ID}}	{{date .CreatedAt}}	{{operation .Type}}	{{status .Status}}	{{.Source}}
+{{else}}No recorded actions.
+{{end}}{{end}}
+{{define "view"}}{{range .Actions}}Action: {{.ID}}
+Operation: {{operation .Type}}
+Status: {{status .Status}}
+Source: {{.Source}}
+{{if .Destination}}Destination: {{.Destination}}
+{{end}}{{if .TrashID}}Trash item: {{.TrashID}}
+Historical trash path: {{.TrashPath}}
+{{end}}Reason: {{.Reason}}
+Requester: {{value .Requester}}
+Description: {{value .Description}}
+Created: {{date .CreatedAt}}
+Updated: {{date .UpdatedAt}}
+Resolved: {{date .ResolvedAt}}
+Review rule: {{value .ReviewRule}}
+{{if .BlockerID}}{{appstring "display.blocker"}}: {{.BlockerID}}
+{{end}}Decision: {{value .Decision}}
+Last operation: {{value .Operation}}
+In progress: {{.InProgress}}
+Failure: {{value .Failure}}
+{{end}}{{end}}
+{{define "config"}}{{appstring "config.title"}}
+{{appstring "config.separator"}}
+{{if .External}}{{configField (appstring "config.source") .Path}}{{else}}{{configField (appstring "config.source") (appstring "display.embedded")}}{{end}}{{configField (appstring "config.trash") .TrashPath}}{{configField (appstring "config.retention") .RetainPeriod}}{{configField (appstring "config.review") .RequireReview}}{{end}}
+{{define "cleanup"}}Removed action records: {{len .Removed}}
+{{range .Removed}}  {{.}}
+{{end}}{{range .Problems}}{{.}}
+{{end}}{{end}}

@@ -1,0 +1,11 @@
+{{.FullName}} — {{.Usage}}
+
+Usage: {{.FullName}} {{.ArgsUsage}}
+{{if .VisibleCommands}}
+Commands:
+{{range .VisibleCommands}}  {{.Name}}	{{.Usage}}
+{{end}}{{end}}
+Options:
+{{range .VisibleFlags}}  {{.}}
+{{end}}{{range .VisiblePersistentFlags}}  {{.}}
+{{end}}

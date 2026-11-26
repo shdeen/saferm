@@ -1,0 +1,34 @@
+{{define "saferm.usage"}}agent trash bin{{end}}
+{{define "saferm.arguments"}}<command> [<arguments>] [<options>]{{end}}
+{{define "delete.usage"}}Move an item into SafeRM trash{{end}}
+{{define "delete.arguments"}}<path> <reason> [--requester <name>] [--description <text>]{{end}}
+{{define "move.usage"}}Move an item to another path{{end}}
+{{define "move.arguments"}}<source> <destination> <reason> [--overwrite [--force]] [--requester <name>] [--description <text>]{{end}}
+{{define "list.usage"}}List recorded actions{{end}}
+{{define "list.arguments"}}[--type <type>] [--status <status>]{{end}}
+{{define "view.usage"}}Inspect one action{{end}}
+{{define "view.arguments"}}<id>{{end}}
+{{define "dispose.usage"}}Decide a pending request{{end}}
+{{define "dispose.arguments"}}<id> (approve|deny){{end}}
+{{define "restore.usage"}}Reverse a deletion or move{{end}}
+{{define "restore.arguments"}}<id> [--overwrite [--force]]{{end}}
+{{define "purge.usage"}}Permanently remove selected trashed items{{end}}
+{{define "purge.arguments"}}<id>...{{end}}
+{{define "cleanup.usage"}}Remove eligible action records{{end}}
+{{define "cleanup.arguments"}}[--orphans]{{end}}
+{{define "config.usage"}}Show the full current configuration{{end}}
+{{define "config.arguments"}}[--default | --setup [--reset]]{{end}}
+{{define "help.usage"}}Show general or command help{{end}}
+{{define "help.arguments"}}[<command>]{{end}}
+{{define "flag.json"}}Return results and diagnostics as JSON; help stays text{{end}}
+{{define "flag.help"}}Show help for this command{{end}}
+{{define "flag.requester"}}Record `<name>` as the requester{{end}}
+{{define "flag.description"}}Record `<text>` as a description of the item{{end}}
+{{define "flag.type"}}List only actions of `<type>`: delete or move{{end}}
+{{define "flag.status"}}List only actions with `<status>`: {{join (statuses) ", "}}, or its number, 1 to {{len (statuses)}}{{end}}
+{{define "flag.overwrite"}}Allow an occupying item to be deleted to recoverable trash before replacement, after confirmation{{end}}
+{{define "flag.force"}}With --overwrite, skip replacement confirmation; review rules still apply{{end}}
+{{define "flag.orphans"}}Also remove records whose expected items are missing{{end}}
+{{define "flag.default"}}Show the embedded configuration without loading the active file{{end}}
+{{define "flag.setup"}}Create the active configuration from embedded defaults{{end}}
+{{define "flag.reset"}}With --setup, ask before replacing an existing configuration{{end}}
