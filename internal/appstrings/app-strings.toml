@@ -1,0 +1,106 @@
+[error]
+inputMissing = "required input is missing"
+inputInvalid = "input is invalid"
+configRead = "configuration read failed"
+configDecode = "configuration decoding failed"
+configWrite = "configuration write failed"
+configMissing = "required setting is unset"
+configInvalid = "setting is invalid"
+homeRead = "home directory lookup failed"
+pathResolve = "path resolution failed"
+fileInspect = "file inspection failed"
+fileTransfer = "file transfer failed"
+fileRemove = "file removal failed"
+fileExists = "destination already exists"
+fileMissing = "item does not exist"
+fileOverlap = "source and destination overlap"
+fileUnsupported = "item type cannot be transferred across filesystems"
+databaseOpen = "database open failed"
+databaseRead = "database read failed"
+databaseWrite = "database write failed"
+databaseClose = "database close failed"
+databaseResult = "filesystem operation succeeded, but its result could not be saved; inspect the recorded locations before further action"
+actionMissing = "action does not exist"
+actionResolved = "action is not eligible for this operation"
+actionBusy = "an operation is in progress or was interrupted; inspect its recorded locations"
+actionAmbiguous = "recorded files do not establish a safe outcome; the record was preserved"
+restorePending = "is awaiting approval"
+restorePendingDetail = "Delete #%d %w. The original path remains occupied. Approve that delete, then run restore again."
+ruleMalformed = "is malformed"
+ruleMalformedDetail = "ERROR: review rule %q %w. Every delete and move needs approval until it is fixed or removed."
+blockerDenied = "was denied"
+blockerFailed = "failed"
+confirmation = "confirmation is required"
+outputWrite = "output write failed"
+templateRender = "template rendering failed"
+inputRead = "confirmation input read failed"
+operationCanceled = "operation canceled"
+batchPartial = "one or more requested operations failed"
+notificationSend = "notification message could not be sent"
+notificationReceive = "notification message could not be received"
+notifierSetup = "SafeRM Notify setup failed"
+applicationLaunch = "SafeRM could not be opened"
+notifierStop = "SafeRM Notify could not be stopped"
+
+[notice]
+configExists = "An active config file already exists. Use --reset to overwrite the current config."
+configSaved = "Configuration saved."
+canceled = "Canceled."
+
+[prompt]
+configReset = "Are you sure you wish to overwrite the existing config?"
+moveOverwrite = "Move the item at {{.Path}} to recoverable trash, then move your item into its place? Review rules still apply."
+restoreOverwrite = "Move the item at {{.Path}} to recoverable trash, then restore your item? Review rules still apply."
+blockedApprove = "Move #{{.MoveID}} waits for delete #{{.BlockerID}} of {{.Path}}. Approve that delete and then approve the move?"
+blockedDeny = "Move #{{.MoveID}} waits for delete #{{.BlockerID}} of {{.Path}}. Deny that delete and the move?"
+defaultNoHint = "(y/N)"
+defaultYesHint = "(Y/n)"
+
+[diagnostic]
+blockerDenied = "Blocker #%d %w."
+blockerFailed = "Blocker #%d %w."
+
+[reason]
+restoreOverwrite = "Make room to restore action #%d."
+
+[warning]
+unreadable = "Warning: could not read %q. This request needs approval."
+
+[display]
+unset = "(unset)"
+blocker = "Blocker"
+embedded = "Embedded defaults"
+date = "January 2, 2006 at 3:04 PM MST"
+
+[config]
+title = "SafeRM Config"
+separator = "------------------------------------------------------------"
+source = "Config File"
+trash = "Trash Path"
+retention = "Retain (days)"
+review = "Require Review"
+empty = "none"
+
+[status]
+"1" = "completed"
+"2" = "pending"
+"3" = "denied"
+"4" = "restored"
+"5" = "purged"
+"6" = "failed"
+
+[operation]
+delete = "Delete"
+move = "Move"
+
+[notification]
+appName = "SafeRM"
+approve = "Approve"
+deny = "Deny"
+review = "Review"
+requester = "Requested by %s"
+delivery = "Notification unavailable"
+[dialog]
+select = "Select"
+yes = "Yes"
+no = "No"
