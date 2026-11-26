@@ -1,0 +1,147 @@
+version: '3.1'
+
+vars:
+  VERSION: '{{.VERSION | default "0.1.0"}}'
+  BUILD_DIR: '{{.BUILD_DIR | default "bin"}}'
+  OUTPUT: '{{.BUILD_DIR}}/saferm-app{{if eq OS "windows"}}.exe{{end}}'
+  NOTIFIER_OUTPUT: '{{.BUILD_DIR}}/saferm-notify{{if eq OS "windows"}}.exe{{end}}'
+  CLI_OUTPUT: '{{.BUILD_DIR}}/saferm{{if eq OS "windows"}}.exe{{end}}'
+  PACKAGE_DIR: '{{if osIsAbs .BUILD_DIR}}{{.BUILD_DIR}}{{else}}{{joinPath .ROOT_DIR .BUILD_DIR}}{{end}}'
+  WAILS_VERSION:
+    sh: go list -m -f '{{"{{.Version}}"}}' github.com/wailsapp/wails/v3
+  WAILS_COMMAND: 'go run github.com/wailsapp/wails/v3/cmd/wails3@{{.WAILS_VERSION}}'
+
+env:
+  CGO_ENABLED: '{{if eq OS "windows"}}0{{else}}1{{end}}'
+  CGO_CFLAGS: '{{if eq OS "darwin"}}-mmacosx-version-min=13.0{{end}}'
+  CGO_LDFLAGS: '{{if eq OS "darwin"}}-mmacosx-version-min=13.0{{end}}'
+  MACOSX_DEPLOYMENT_TARGET: '13.0'
+
+tasks:
+  bindings:
+    desc: Generate TypeScript bindings with the Wails version from go.mod
+    run: once
+    cmds:
+      - '{{.WAILS_COMMAND}} generate bindings -ts -i -clean=false -d frontend/bindings ./cmd/saferm-app'
+  frontend:install:
+    run: once
+    cmds:
+      - npm --prefix frontend ci
+  frontend:
+    run: once
+    cmds:
+      - task: frontend:install
+      - task: bindings
+      - npm --prefix frontend run build
+  test:
+    desc: Run Go tests and frontend tests, formatting, type checking, and build
+    cmds:
+      - task: test:go
+      - task: test:frontend
+  test:go:
+    desc: Run every Go test; set RACE=true to enable the race detector
+    env:
+      CGO_ENABLED: '{{if or (ne OS "windows") (eq .RACE "true")}}1{{else}}0{{end}}'
+    cmds:
+      - go test -count=1 {{if eq .RACE "true"}}-race{{end}} ./...
+  test:frontend:
+    desc: Run frontend tests and checks
+    cmds:
+      - task: frontend:install
+      - task: bindings
+      - npm --prefix frontend test
+      - npm --prefix frontend run format:check
+      - task: frontend
+  build:
+    desc: Build the desktop app, SafeRM Notify, and CLI for this operating system and architecture
+    cmds:
+      - task: '{{if eq .CHECK_FRONTEND "true"}}test:frontend{{else}}frontend{{end}}'
+      - cmd: '{{.WAILS_COMMAND}} generate syso -arch {{ARCH}} -icon build/windows/saferm.ico -manifest build/windows/saferm.exe.manifest -out cmd/saferm-app/rsrc_windows_{{ARCH}}.syso'
+        platforms: [windows]
+      - cmd: '{{.WAILS_COMMAND}} generate syso -arch {{ARCH}} -icon build/windows/saferm.ico -manifest build/windows/saferm.exe.manifest -out cmd/saferm-notify/rsrc_windows_{{ARCH}}.syso'
+        platforms: [windows]
+      - go build {{if ne .DEV "true"}}-tags production -trimpath{{if eq OS "windows"}} -ldflags="-H windowsgui"{{end}}{{end}} -o "{{.OUTPUT}}" ./cmd/saferm-app
+      - go build {{if ne .DEV "true"}}-tags production -trimpath{{if eq OS "windows"}} -ldflags="-H windowsgui"{{end}}{{end}} -o "{{.NOTIFIER_OUTPUT}}" ./cmd/saferm-notify
+      - go build {{if ne .DEV "true"}}-tags production -trimpath{{end}} -o "{{.CLI_OUTPUT}}" ./cmd/saferm
+  package:
+    desc: Check the frontend, build, and archive the native desktop app
+    cmds:
+      - task: test:frontend
+      - task: build
+      - task: package:prepare
+      - task: package:archive
+  package:prepare:
+    desc: Assemble the macOS application bundle from compiled executables without creating an installer
+    platforms: [darwin]
+    cmds:
+      - cmd: |
+          mkdir -p "{{.BUILD_DIR}}/SafeRM.app/Contents/MacOS"
+          cp "{{.OUTPUT}}" "{{.BUILD_DIR}}/SafeRM.app/Contents/MacOS/saferm-app"
+          cp "{{.CLI_OUTPUT}}" "{{.BUILD_DIR}}/SafeRM.app/Contents/MacOS/saferm"
+          cp build/darwin/Info.plist "{{.BUILD_DIR}}/SafeRM.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString {{.VERSION}}" "{{.BUILD_DIR}}/SafeRM.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion {{.VERSION}}" "{{.BUILD_DIR}}/SafeRM.app/Contents/Info.plist"
+          mkdir -p "{{.BUILD_DIR}}/SafeRM.app/Contents/Resources"
+          cp build/darwin/saferm.icns "{{.BUILD_DIR}}/SafeRM.app/Contents/Resources/saferm.icns"
+          notifier_bundle="{{.BUILD_DIR}}/SafeRM.app/Contents/Library/LoginItems/SafeRM Notify.app"
+          mkdir -p "$notifier_bundle/Contents/MacOS"
+          cp "{{.NOTIFIER_OUTPUT}}" "$notifier_bundle/Contents/MacOS/saferm-notify"
+          cp build/darwin/Notify.plist "$notifier_bundle/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString {{.VERSION}}" "$notifier_bundle/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion {{.VERSION}}" "$notifier_bundle/Contents/Info.plist"
+          mkdir -p "$notifier_bundle/Contents/Resources"
+          cp build/darwin/saferm.icns "$notifier_bundle/Contents/Resources/saferm.icns"
+  package:binaries:
+    desc: Archive compiled macOS and Windows binaries for signing or explicitly requested retention
+    cmds:
+      - cmd: ditto -c -k --keepParent "{{.BUILD_DIR}}/SafeRM.app" "{{.BUILD_DIR}}/saferm-app-darwin-{{ARCH}}.zip"
+        platforms: [darwin]
+      - cmd: powershell -NoProfile -Command "Compress-Archive -LiteralPath '{{.OUTPUT}}','{{.NOTIFIER_OUTPUT}}','{{.CLI_OUTPUT}}' -DestinationPath '{{.BUILD_DIR}}/saferm-app-windows-{{ARCH}}.zip' -Force"
+        platforms: [windows]
+  package:archive:
+    desc: Create native installers from already compiled executables and prepared bundles
+    cmds:
+      - cmd: |
+          notifier_bundle="{{.BUILD_DIR}}/SafeRM.app/Contents/Library/LoginItems/SafeRM Notify.app"
+          # Local signatures allow unsigned development bundles to run on macOS.
+          codesign --force --sign - "$notifier_bundle"
+          codesign --force --sign - "{{.BUILD_DIR}}/SafeRM.app/Contents/MacOS/saferm"
+          codesign --force --sign - "{{.BUILD_DIR}}/SafeRM.app"
+          codesign --verify --strict "{{.BUILD_DIR}}/SafeRM.app"
+        platforms: [darwin]
+      - cmd: '{{.WAILS_COMMAND}} tool package --format dmg --name SafeRM --out "{{.BUILD_DIR}}"'
+        platforms: [darwin]
+      - task: package:windows
+      - task: package:linux
+  package:windows:
+    desc: Create the per-user Windows installer from built GUI, SafeRM Notify, and CLI executables
+    platforms: [windows]
+    cmds:
+      - '{{.WAILS_COMMAND}} generate webview2bootstrapper -dir "{{.BUILD_DIR}}"'
+      - 'makensis /DBUILD_DIR="{{.PACKAGE_DIR}}" /DTARGET_ARCH={{ARCH}} /DPRODUCT_VERSION={{.VERSION}} build/windows/installer.nsi'
+  package:linux:
+    desc: Package built GUI, SafeRM Notify, and CLI executables as DEB and RPM
+    platforms: [linux]
+    dir: '{{.PACKAGE_DIR}}'
+    env:
+      SAFERM_ARCH: '{{.TARGET_ARCH | default ARCH}}'
+      SAFERM_VERSION: '{{.VERSION}}'
+    cmds:
+      - 'cp "{{.ROOT_DIR}}/build/linux/saferm.desktop" "{{.ROOT_DIR}}"/build/linux/saferm-*.png .'
+      - '{{.WAILS_COMMAND}} tool package --format deb --name saferm-app-linux-{{.TARGET_ARCH | default ARCH}} --config "{{.ROOT_DIR}}/build/linux/package.yaml" --out .'
+      - '{{.WAILS_COMMAND}} tool package --format rpm --name saferm-app-linux-{{.TARGET_ARCH | default ARCH}} --config "{{.ROOT_DIR}}/build/linux/package.yaml" --out .'
+  run:
+    desc: Run the desktop executable
+    cmds:
+      - '"{{.OUTPUT}}"'
+  dev:
+    desc: Run the desktop app with frontend hot reload
+    env:
+      GOBIN: '{{.ROOT_DIR}}/bin/tools'
+      PATH: '{{.ROOT_DIR}}/bin/tools{{if eq OS "windows"}};{{else}}:{{end}}{{.PATH}}'
+    cmds:
+      - go install github.com/wailsapp/wails/v3/cmd/wails3@{{.WAILS_VERSION}}
+      - wails3 dev -config build/config.yml -port 9246
+  dev:frontend:
+    cmds:
+      - npm --prefix frontend run dev

@@ -1,0 +1,38 @@
+name: saferm-app
+arch: ${SAFERM_ARCH}
+platform: linux
+version: ${SAFERM_VERSION}
+maintainer: Shulem Deen
+description: SafeRM desktop interface, SafeRM Notify, and command-line tool
+contents:
+  - src: saferm-app
+    dst: /usr/lib/saferm/saferm-app
+    file_info:
+      mode: 0755
+  - src: saferm-notify
+    dst: /usr/lib/saferm/saferm-notify
+    file_info:
+      mode: 0755
+  - src: saferm
+    dst: /usr/lib/saferm/saferm
+    file_info:
+      mode: 0755
+  - src: /usr/lib/saferm/saferm
+    dst: /usr/bin/saferm
+    type: symlink
+  - src: saferm.desktop
+    dst: /usr/share/applications/saferm.desktop
+  - src: saferm-128.png
+    dst: /usr/share/icons/hicolor/128x128/apps/saferm.png
+  - src: saferm-256.png
+    dst: /usr/share/icons/hicolor/256x256/apps/saferm.png
+  - src: saferm-512.png
+    dst: /usr/share/icons/hicolor/512x512/apps/saferm.png
+depends:
+  - libgtk-4-1
+  - libwebkitgtk-6.0-4
+overrides:
+  rpm:
+    depends:
+      - gtk4
+      - webkitgtk6.0

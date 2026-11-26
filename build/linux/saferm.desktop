@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=SafeRM
+Comment=Review operations and recover files
+Exec=/usr/lib/saferm/saferm-app
+Icon=saferm
+Terminal=false
+Categories=Utility;FileTools;
