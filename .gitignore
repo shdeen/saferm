@@ -1,0 +1,14 @@
+.DS_Store
+bin/
+frontend/node_modules/
+frontend/dist/*
+!frontend/dist/.gitkeep
+.task/
+*.syso
+
+!/tend/
+/tend/*
+!/tend/export/
+tend/
+scripts/__pycache__/
+.tendrc
