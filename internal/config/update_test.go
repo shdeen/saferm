@@ -15,6 +15,7 @@ import (
 //  1. Settings persistence: Accepted edits create the configuration and preserve unchanged values.
 //  2. Invalid settings: Invalid directory or retention edits do not alter the configuration.
 //  3. Directory validation: Only existing directories are accepted, including home-relative paths.
+//  4. Replaced values on save: Saving a change writes the embedded values in place of values that can't be applied.
 
 // TestUpdate verifies invariant #1: Settings persistence.
 // Test class: Expanded.
@@ -126,5 +127,54 @@ func TestDirectoryExists(t *testing.T) {
 
 	if !t.Failed() {
 		t.Log("✓ only existing directories pass validation")
+	}
+}
+
+// TestUpdateReplacesInvalidValues verifies invariant #4: Replaced values on save.
+// Test class: Expanded.
+// Test layer: Coverage.
+// What is under test:
+// Saving a change to a file whose trash path and retention period can't be
+// applied writes the embedded values in their place, keeps the change, and
+// reports no replaced value, either in the returned settings or after a reload.
+func TestUpdateReplacesInvalidValues(t *testing.T) {
+	homeDirectory := t.TempDir()
+	blockingFile := filepath.Join(homeDirectory, "blocking-file")
+
+	if err := os.WriteFile(blockingFile, []byte("contents"), 0o600); err != nil {
+		t.Fatalf("💣 blocking file: %v", err)
+	}
+
+	writeSettings(t, homeDirectory, "trash-path = '"+blockingFile+"'\nretain-period = -5\n")
+
+	defaults, err := Decode(DefaultDocument)
+	if err != nil {
+		t.Fatalf("💣 decode defaults: %v", err)
+	}
+
+	reviewPaths := []string{"**/.git/"}
+
+	saved, err := Update(context.Background(), homeDirectory, Settings{RequireReview: reviewPaths})
+	if err != nil {
+		t.Fatalf("✗ update: %v", err)
+	}
+
+	reloaded, err := Load(homeDirectory)
+	if err != nil {
+		t.Fatalf("✗ reload: %v", err)
+	}
+
+	for _, settings := range []Settings{saved, reloaded} {
+		if !reflect.DeepEqual(settings.TrashPath, defaults.TrashPath) || !reflect.DeepEqual(settings.RetainPeriod, defaults.RetainPeriod) || !reflect.DeepEqual(settings.RequireReview, reviewPaths) {
+			t.Errorf("✗ saved settings: %#v", settings)
+		}
+
+		if settings.InvalidTrashPath != "" || settings.InvalidRetainPeriod != "" {
+			t.Errorf("✗ replaced values still reported: %q, %q", settings.InvalidTrashPath, settings.InvalidRetainPeriod)
+		}
+	}
+
+	if !t.Failed() {
+		t.Log("✓ saving writes applicable values")
 	}
 }

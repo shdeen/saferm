@@ -1,7 +1,7 @@
 package saferm
 
 // Invariants tested:
-//  1. Configuration selection: An active file replaces embedded defaults completely.
+//  1. Configuration selection: An active file replaces embedded defaults, except that an omitted trash path or retention period takes the embedded one.
 //  2. Configuration setup: Existing files survive without confirmed reset.
 //  3. Recoverable deletion: Deletion stores unique identities and restore uses the current trash directory.
 //  4. Reversible movement: Moves preserve contents, refuse replacement, and restore to the source.
@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/shdeen/saferm/internal/appstrings"
+	"github.com/shdeen/saferm/internal/config"
 	"github.com/shdeen/saferm/internal/errs"
 
 	"github.com/shdeen/saferm/internal/store"
@@ -34,7 +35,9 @@ import (
 // Test kind: Permanent.
 // What is under test:
 // Embedded defaults are present without an active file. An empty active file
-// leaves every key unset; a move still works without trash or retention settings.
+// takes the embedded trash path and retention period and leaves the review
+// rules unset; a delete puts the item in the embedded trash, and cleanup
+// succeeds.
 func TestConfigSelection(t *testing.T) {
 	home := isolateHome(t)
 
@@ -58,17 +61,41 @@ func TestConfigSelection(t *testing.T) {
 		return
 	}
 
-	if result.Config.TrashPath != nil || result.Config.RetainPeriod != nil || len(result.Config.RequireReview) != 0 {
-		t.Error("✗ active config inherited defaults")
+	embedded, err := config.Decode(config.DefaultDocument)
+	if err != nil || embedded.TrashPath == nil || embedded.RetainPeriod == nil {
+		t.Fatalf("💣 embedded defaults: %v, %+v", err, embedded)
+	}
+
+	if result.Config.TrashPath == nil || *result.Config.TrashPath != *embedded.TrashPath {
+		t.Errorf("✗ active config trash path: got %v, want %q", result.Config.TrashPath, *embedded.TrashPath)
+	}
+
+	if result.Config.RetainPeriod == nil || *result.Config.RetainPeriod != *embedded.RetainPeriod {
+		t.Errorf("✗ active config retention period: got %v, want %d", result.Config.RetainPeriod, *embedded.RetainPeriod)
+	}
+
+	if result.Config.RequireReview != nil {
+		t.Error("✗ active config inherited review defaults")
+	}
+
+	if _, err = Run(t.Context(), &Request{Command: Cleanup}); err != nil {
+		t.Errorf("✗ cleanup without a retain-period key: %v", err)
 	}
 
 	source := filepath.Join(home, "source")
-	writeFile(t, source, "contents")
+	writeFile(t, source, "deleted contents")
 
-	_, err = Run(t.Context(), &Request{Command: "move", Source: source, Destination: filepath.Join(home, "destination"), Reason: "relocate"})
-	if err != nil {
-		t.Errorf("✗ move required unused configuration: %v", err)
+	deleted, err := Run(t.Context(), &Request{Command: Delete, Source: source, Reason: "remove"})
+	if err != nil || len(deleted.Actions) != 1 {
+		t.Fatalf("✗ delete without a trash-path key: %+v, %v", deleted, err)
 	}
+
+	embeddedTrash, err := embedded.Trash(home)
+	if err != nil {
+		t.Fatalf("💣 embedded trash: %v", err)
+	}
+
+	assertFile(t, filepath.Join(embeddedTrash, deleted.Actions[0].TrashID), "deleted contents")
 
 	if !t.Failed() {
 		t.Log("✓ configuration selection")

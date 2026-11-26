@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """Permanent binary checks: recoverable delete, move, restore and replacement;
 consent, independent review, linked decisions, pending notifications, recording
-and transfer failures, invalid trash parents, unreused action IDs, CLI independence,
-review patterns, folder requests, malformed patterns, and the JSON form of results.
+and transfer failures, unreused action IDs, CLI independence,
+built-in trash and retention settings, values that replace unusable ones, review patterns, folder requests, malformed
+patterns, and the JSON form of results.
 
 Uses copies of a supplied real document. All effects stay in the supplied test
 directory. The caller retains that directory for inspection and cleanup.
 """
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
+import pty
 import shutil
 import socket
 import sqlite3
@@ -115,7 +118,7 @@ def occupied_move_refusal(commands):
     commands.configure([])
     source = commands.source('refused-move-source')
     destination = commands.source('refused-move-destination')
-    occupant_bytes = (Path(__file__).resolve().parents[1] / 'frontend' / 'README.md').read_bytes()
+    occupant_bytes = (Path(__file__).resolve().parents[1] / 'LICENSE').read_bytes()
     destination.write_bytes(occupant_bytes)
     previous_history = commands.run('list')
     process = commands.invoke('move', str(source), str(destination), 'Relocate document', exit_code=1)
@@ -205,7 +208,7 @@ def restore_preservation(commands):
         if original_type == 'move':
             arguments.append(str(commands.directory / 'restore-moved-document'))
         original = commands.run(*arguments, 'Retain original document')
-        occupant_bytes = (Path(__file__).resolve().parents[1] / 'frontend' / 'README.md').read_bytes()
+        occupant_bytes = (Path(__file__).resolve().parents[1] / 'LICENSE').read_bytes()
         source.write_bytes(occupant_bytes)
         before_confirmation = commands.run('list')
         force_only = commands.invoke('restore', '--force', str(original['id']), exit_code=1)
@@ -235,7 +238,7 @@ def restore_review(commands):
     commands.configure([])
     source = commands.source('protected-restore-source')
     original = commands.run('delete', str(source), 'Retain original document')
-    occupant_bytes = (Path(__file__).resolve().parents[1] / 'frontend' / 'README.md').read_bytes()
+    occupant_bytes = (Path(__file__).resolve().parents[1] / 'LICENSE').read_bytes()
     source.write_bytes(occupant_bytes)
     commands.configure([str(source)])
     pending_process = commands.invoke('restore', '--overwrite', '--force', str(original['id']), exit_code=1)
@@ -258,7 +261,7 @@ def restore_recording_failures(commands):
     for failure_at in ('occupant', 'claim', 'outcome'):
         source = commands.source('restore-failure-' + failure_at)
         original = commands.run('delete', str(source), 'Retain original document')
-        occupant_bytes = (Path(__file__).resolve().parents[1] / 'frontend' / 'README.md').read_bytes()
+        occupant_bytes = (Path(__file__).resolve().parents[1] / 'LICENSE').read_bytes()
         source.write_bytes(occupant_bytes)
         statement = {
             'occupant': 'BEFORE INSERT ON actions',
@@ -300,7 +303,7 @@ def move_replacement(commands, listener):
     commands.configure([])
     source = commands.source('replacement-source')
     destination = commands.directory / 'replacement-destination'
-    occupant_bytes = (Path(__file__).resolve().parents[1] / 'frontend' / 'README.md').read_bytes()
+    occupant_bytes = (Path(__file__).resolve().parents[1] / 'LICENSE').read_bytes()
     destination.write_bytes(occupant_bytes)
     previous_history = commands.run('list')
     for flags in ([], ['--force']):
@@ -335,7 +338,7 @@ def move_review(commands, listener):
         name = f'review-{source_review}-{occupant_review}'
         source = commands.source(name + '-source')
         destination = commands.directory / (name + '-destination')
-        occupant_bytes = (Path(__file__).resolve().parents[1] / 'frontend' / 'README.md').read_bytes()
+        occupant_bytes = (Path(__file__).resolve().parents[1] / 'LICENSE').read_bytes()
         destination.write_bytes(occupant_bytes)
         rules = ([str(source)] if source_review else []) + ([str(destination)] if occupant_review else [])
         commands.configure(rules)
@@ -368,7 +371,7 @@ def move_linked_decisions(commands, listener):
             name = f'combined-{source_review}-{decision}'
             source = commands.source(name + '-source')
             destination = commands.directory / (name + '-destination')
-            occupant_bytes = (Path(__file__).resolve().parents[1] / 'frontend' / 'README.md').read_bytes()
+            occupant_bytes = (Path(__file__).resolve().parents[1] / 'LICENSE').read_bytes()
             destination.write_bytes(occupant_bytes)
             commands.configure([str(destination)] + ([str(source)] if source_review else []))
             replaced = commands.run('move', '--overwrite', '--force', str(source), str(destination), 'Relocate document')
@@ -472,7 +475,7 @@ def move_repeated_destination(commands, listener):
     # Kind: permanent. Independent moves use separate deletes in either approval order.
     for reverse in (False, True):
         sources = [commands.source(f'repeated-{reverse}-{index}') for index in range(2)]
-        sources[1].write_bytes((Path(__file__).resolve().parents[1] / 'frontend' / 'README.md').read_bytes())
+        sources[1].write_bytes((Path(__file__).resolve().parents[1] / 'LICENSE').read_bytes())
         source_bytes = [source.read_bytes() for source in sources]
         destination = commands.directory / f'repeated-{reverse}-destination'
         occupant_bytes = (Path(__file__).resolve().parents[1] / 'go.mod').read_bytes()
@@ -502,7 +505,7 @@ def move_recording_failure(commands, listener):
     commands.configure([])
     source = commands.source('failed-pair-source')
     destination = commands.directory / 'failed-pair-destination'
-    occupant_bytes = (Path(__file__).resolve().parents[1] / 'frontend' / 'README.md').read_bytes()
+    occupant_bytes = (Path(__file__).resolve().parents[1] / 'LICENSE').read_bytes()
     destination.write_bytes(occupant_bytes)
     previous_history = commands.run('list')
     database_path = commands.directory / '.saferm' / 'saferm.sqlite'
@@ -534,14 +537,6 @@ def move_preparation(commands, listener):
     assert moved['status'] == 1 and not moved.get('blockerID')
     assert destination.read_bytes() == commands.document.read_bytes() and not source.exists()
     assert_notifications(listener, [])
-
-    source = commands.source('unset-trash-source')
-    destination = commands.source('unset-trash-destination')
-    previous_history = commands.run('list')
-    refused = commands.invoke('move', '--overwrite', str(source), str(destination), 'Relocate document', answer='y\n', exit_code=1)
-    assert commands.catalog['error']['configMissing'] in refused.stderr
-    assert commands.run('list') == previous_history
-    assert source.read_bytes() == destination.read_bytes() == commands.document.read_bytes()
 
     commands.configure([])
     directory = commands.directory / 'overlap-directory'
@@ -590,7 +585,7 @@ def replacement_trash_location(commands, listener):
                     arguments = ['restore', '--overwrite', '--force', str(original['id'])]
                 else:
                     arguments = ['move', '--overwrite', '--force', str(moving_directory), str(occupant_path), 'Replace document directory']
-                occupant_bytes = (Path(__file__).resolve().parents[1] / 'frontend' / 'README.md').read_bytes()
+                occupant_bytes = (Path(__file__).resolve().parents[1] / 'LICENSE').read_bytes()
                 occupant_path.write_bytes(occupant_bytes)
                 trash_directory = moving_directory / 'trash'
                 if alias_layout == 'direct':
@@ -630,44 +625,6 @@ def replacement_trash_location(commands, listener):
     print('PASS: move and restore preserve trash access through direct paths and symbolic-link chains')
 
 
-def invalid_trash_parents(commands):
-    # Kind: permanent. A file at or above the trash directory refuses preparation without effects.
-    occupant_bytes = (Path(__file__).resolve().parents[1] / 'frontend' / 'README.md').read_bytes()
-    for operation in ('delete', 'move', 'restore'):
-        for nested in (False, True):
-            commands.configure([])
-            case_name = operation + ('-nested-parent' if nested else '-file-parent')
-            source = commands.source(case_name + '-source')
-            destination = commands.directory / (case_name + '-destination')
-            if operation == 'restore':
-                original = commands.run('move', str(source), str(destination), 'Relocate document')
-                source.write_bytes(occupant_bytes)
-                arguments = ['restore', '--overwrite', '--force', str(original['id'])]
-            elif operation == 'move':
-                destination.write_bytes(occupant_bytes)
-                arguments = ['move', '--overwrite', '--force', str(source), str(destination), 'Replace document']
-            else:
-                arguments = ['delete', str(source), 'Remove document']
-            blocking_file = commands.source(case_name + '-trash')
-            trash_path = blocking_file / 'missing' / 'nested' if nested else blocking_file
-            (commands.directory / '.saferm' / 'config.toml').write_text(
-                'trash-path = ' + json.dumps(str(trash_path)) + '\nrequire-review = []\n')
-            previous_history = commands.run('list')
-            source_bytes = source.read_bytes()
-            destination_bytes = destination.read_bytes() if destination.exists() else None
-            process = commands.invoke(*arguments, exit_code=1)
-            assert not process.stdout and json.loads(process.stderr)['error'], process
-            assert commands.run('list') == previous_history
-            assert source.read_bytes() == source_bytes
-            assert blocking_file.read_bytes() == commands.document.read_bytes()
-            if destination_bytes is None:
-                assert not destination.exists()
-            else:
-                assert destination.read_bytes() == destination_bytes
-    commands.configure([])
-    print('PASS: invalid trash parents refuse delete, move replacement and restore replacement without effects')
-
-
 def plain_output(commands, *arguments):
     """Run the binary without --json and return its completed process."""
     return subprocess.run([commands.binary, *arguments], env=commands.environment, capture_output=True, text=True, timeout=10)
@@ -687,6 +644,183 @@ def empty_builtin_list(commands):
     review_line = commands.catalog['config']['review'].split() + [commands.catalog['config']['empty']]
     assert config_display.returncode == 0 and review_line in [line.split() for line in config_display.stdout.splitlines()], config_display
     print('PASS: the built-in configuration lists no review patterns')
+
+
+def omitted_or_blank_trash_path(commands):
+    # Kind: permanent. An omitted or blank trash-path uses the built-in trash directory for config,
+    # delete, restore, and move replacement.
+    built_in = commands.run('config', '--default')['trashPath']
+    built_in_directory = Path(str(commands.directory) + built_in[1:]) if built_in.startswith('~') else Path(built_in)
+    occupant_bytes = (Path(__file__).resolve().parents[1] / 'LICENSE').read_bytes()
+    settings = commands.directory / '.saferm' / 'config.toml'
+    settings.parent.mkdir(exist_ok=True)
+    for label, document in (('omitted', 'require-review = []\n'),
+                            ('empty', 'trash-path = ""\nrequire-review = []\n'),
+                            ('blank', 'trash-path = "   "\nrequire-review = []\n')):
+        settings.write_text(document)
+        assert commands.run('config')['trashPath'] == built_in, label
+
+        source = commands.source(label + '-trash-source')
+        deleted = commands.run('delete', str(source), 'Remove document')
+        assert deleted['status'] == 1 and Path(deleted['trashPath']) == built_in_directory, (label, deleted)
+        assert (built_in_directory / deleted['trashID']).read_bytes() == commands.document.read_bytes() and not source.exists()
+        restored = commands.run('restore', str(deleted['id']))
+        assert restored['status'] == 4 and source.read_bytes() == commands.document.read_bytes(), (label, restored)
+
+        destination = commands.directory / (label + '-trash-destination')
+        destination.write_bytes(occupant_bytes)
+        pair = commands.run('move', '--overwrite', '--force', str(source), str(destination), 'Relocate document')
+        moved, occupying = pair['actions']
+        assert moved['status'] == 1 and occupying['status'] == 1, (label, pair)
+        assert (built_in_directory / occupying['trashID']).read_bytes() == occupant_bytes, label
+        assert destination.read_bytes() == commands.document.read_bytes() and not source.exists(), label
+    settings.unlink()
+    print('PASS: an omitted or blank trash-path uses the built-in trash directory')
+
+
+def omitted_retain_period(shared_commands):
+    # Kind: permanent. An omitted retain-period uses the built-in retention period for config and cleanup;
+    # an omitted require-review stays unset. A separate home keeps earlier interrupted records out of cleanup.
+    commands = Commands(shared_commands.binary, shared_commands.directory / 'retention-home', shared_commands.document)
+    built_in_days = commands.run('config', '--default')['retainPeriod']
+    settings = commands.directory / '.saferm' / 'config.toml'
+    settings.parent.mkdir(exist_ok=True)
+    settings.write_text('trash-path = "~/.saferm/trash"\n')
+    configuration = commands.run('config')
+    assert configuration['retainPeriod'] == built_in_days and configuration['requireReview'] is None, configuration
+
+    restored_ids = []
+    for name in ('expired-retention-document', 'retained-retention-document'):
+        deleted = commands.run('delete', str(commands.source(name)), 'Remove document')
+        assert commands.run('restore', str(deleted['id']))['status'] == 4
+        restored_ids.append(deleted['id'])
+    expired_id, retained_id = restored_ids
+    now = datetime.now(timezone.utc)
+    with sqlite3.connect(commands.directory / '.saferm' / 'saferm.sqlite') as database:
+        for action_id, age in ((expired_id, timedelta(days=built_in_days, hours=1)),
+                               (retained_id, timedelta(days=built_in_days, hours=-1))):
+            database.execute('UPDATE actions SET resolved_at=? WHERE action_id=?',
+                             ((now - age).strftime('%Y-%m-%dT%H:%M:%S.%fZ'), action_id))
+
+    cleaned = commands.run('cleanup')
+    assert expired_id in cleaned.get('removed', []) and retained_id not in cleaned.get('removed', []), cleaned
+    assert commands.run('view', str(retained_id))['id'] == retained_id
+    commands.invoke('view', str(expired_id), exit_code=1)
+    settings.unlink()
+    print('PASS: an omitted retain-period uses the built-in retention period; an omitted require-review stays unset')
+
+
+TERMINAL_RED = '\x1b[31m'
+
+
+def invalid_value_text(commands, value):
+    """Return the catalog error for a replaced value with all whitespace removed, since the display wraps it."""
+    return ''.join(commands.catalog['config']['invalidValue'].replace('{{.}}', value).split())
+
+
+def assert_invalid_value_shown(commands, value):
+    """Check that the piped text display of config shows the error for the value, without color codes."""
+    display = plain_output(commands, 'config')
+    assert display.returncode == 0, display
+    assert invalid_value_text(commands, value) in ''.join(display.stdout.split()), display.stdout
+    assert '\x1b[' not in display.stdout, display.stdout
+
+
+def terminal_output(commands, *arguments):
+    """Run the binary with standard output on a pseudo-terminal and return what it wrote there."""
+    leader, follower = pty.openpty()
+    process = subprocess.Popen([commands.binary, *arguments], env=commands.environment, stdout=follower,
+                               stderr=subprocess.DEVNULL)
+    os.close(follower)
+    written = b''
+    while True:
+        try:
+            chunk = os.read(leader, 65536)
+        except OSError:
+            break
+        if not chunk:
+            break
+        written += chunk
+    os.close(leader)
+    assert process.wait(timeout=10) == 0, written
+    return written.decode()
+
+
+def invalid_retain_period(shared_commands):
+    # Kind: permanent. A retain-period that can't be applied is replaced by the built-in one,
+    # config reports both values, and cleanup succeeds. A separate home keeps earlier interrupted records out of cleanup.
+    commands = Commands(shared_commands.binary, shared_commands.directory / 'invalid-retention-home', shared_commands.document)
+    built_in_days = commands.run('config', '--default')['retainPeriod']
+    settings = commands.directory / '.saferm' / 'config.toml'
+    settings.parent.mkdir(exist_ok=True)
+    for written, shown in (('-5', '-5'), ('"thirty"', 'thirty'), ('1.5', '1.5')):
+        settings.write_text('retain-period = ' + written + '\nrequire-review = []\n')
+        configuration = commands.run('config')
+        assert configuration['retainPeriod'] == built_in_days and configuration['invalidRetainPeriod'] == shown, configuration
+        assert 'invalidTrashPath' not in configuration, configuration
+        assert_invalid_value_shown(commands, shown)
+        commands.run('cleanup')
+    settings.unlink()
+    print('PASS: a retain-period that cannot be applied is replaced by the built-in one and reported by config')
+
+
+def invalid_trash_path(commands):
+    # Kind: permanent. A trash-path that can't be applied is replaced by the built-in trash directory
+    # for config, delete, move replacement, and restore replacement; the file in the way is untouched.
+    built_in = commands.run('config', '--default')['trashPath']
+    built_in_directory = Path(str(commands.directory) + built_in[1:]) if built_in.startswith('~') else Path(built_in)
+    occupant_bytes = (Path(__file__).resolve().parents[1] / 'LICENSE').read_bytes()
+    settings = commands.directory / '.saferm' / 'config.toml'
+    settings.parent.mkdir(exist_ok=True)
+
+    settings.write_text('trash-path = 5\nrequire-review = []\n')
+    configuration = commands.run('config')
+    assert configuration['trashPath'] == built_in and configuration['invalidTrashPath'] == '5', configuration
+    assert_invalid_value_shown(commands, '5')
+
+    for nested in (False, True):
+        label = 'nested-file-trash' if nested else 'file-trash'
+        blocking_file = commands.source(label + '-blocker')
+        configured = str(blocking_file / 'missing' / 'nested' if nested else blocking_file)
+        settings.write_text('trash-path = ' + json.dumps(configured) + '\nrequire-review = []\n')
+        configuration = commands.run('config')
+        assert configuration['trashPath'] == built_in and configuration['invalidTrashPath'] == configured, configuration
+        assert 'invalidRetainPeriod' not in configuration, configuration
+        assert_invalid_value_shown(commands, configured)
+
+        source = commands.source(label + '-source')
+        deleted = commands.run('delete', str(source), 'Remove document')
+        assert deleted['status'] == 1 and Path(deleted['trashPath']) == built_in_directory, (label, deleted)
+        assert (built_in_directory / deleted['trashID']).read_bytes() == commands.document.read_bytes()
+
+        source.write_bytes(occupant_bytes)
+        restored, occupying = commands.run('restore', '--overwrite', '--force', str(deleted['id']))['actions'][::-1]
+        assert restored['status'] == 4 and occupying['status'] == 1, (label, restored, occupying)
+        assert source.read_bytes() == commands.document.read_bytes()
+        assert (built_in_directory / occupying['trashID']).read_bytes() == occupant_bytes
+
+        destination = commands.directory / (label + '-destination')
+        destination.write_bytes(occupant_bytes)
+        moved, replaced = commands.run('move', '--overwrite', '--force', str(source), str(destination), 'Replace document')['actions']
+        assert moved['status'] == 1 and replaced['status'] == 1, (label, moved, replaced)
+        assert (built_in_directory / replaced['trashID']).read_bytes() == occupant_bytes
+        assert destination.read_bytes() == commands.document.read_bytes() and not source.exists()
+        assert blocking_file.read_bytes() == commands.document.read_bytes(), label
+    settings.unlink()
+    print('PASS: a trash-path that cannot be applied is replaced by the built-in trash directory and reported by config')
+
+
+def terminal_error_color(commands):
+    # Kind: permanent. On a terminal, config shows a replaced value's error in red; valid settings show no red.
+    settings = commands.directory / '.saferm' / 'config.toml'
+    settings.parent.mkdir(exist_ok=True)
+    settings.write_text('retain-period = -5\nrequire-review = []\n')
+    displayed = terminal_output(commands, 'config')
+    assert TERMINAL_RED in displayed and invalid_value_text(commands, '-5') in ''.join(displayed.replace(TERMINAL_RED, '').replace('\x1b[0m', '').split()), displayed
+    settings.write_text('retain-period = 5\nrequire-review = []\n')
+    assert TERMINAL_RED not in terminal_output(commands, 'config')
+    settings.unlink()
+    print('PASS: config shows a replaced value in red on a terminal and no red for valid settings')
 
 
 def place(commands, relative_path):
@@ -763,16 +897,16 @@ def linked_patterns(commands):
     # Kind: permanent. A pattern that spells out a link's path protects the link and its target; a
     # pattern that matches the link through a wildcard protects the link alone; a pattern that ends
     # in a slash matches a link that points to a folder.
-    documents_folder = commands.directory / 'Docs Home'
-    linked_document = place(commands, 'Docs Home/Coding/x')
-    documents_link = commands.directory / 'DocsHome'
+    documents_folder = commands.directory / 'My Documents'
+    linked_document = place(commands, 'My Documents/reports/x')
+    documents_link = commands.directory / 'MyDocuments'
     documents_link.symlink_to(documents_folder, target_is_directory=True)
-    commands.configure(['~/DocsHome/'])
-    assert_pending(commands, '~/DocsHome/', 'delete', str(linked_document), 'Remove linked document')
-    assert_pending(commands, '~/DocsHome/', 'delete', str(documents_link), 'Remove the link')
-    assert_completed(commands, 'delete', str(place(commands, 'Other Docs/Coding/x')), 'Remove other document')
-    commands.configure(['~/DocsHom?/'])
-    assert_pending(commands, '~/DocsHom?/', 'delete', str(documents_link), 'Remove the link')
+    commands.configure(['~/MyDocuments/'])
+    assert_pending(commands, '~/MyDocuments/', 'delete', str(linked_document), 'Remove linked document')
+    assert_pending(commands, '~/MyDocuments/', 'delete', str(documents_link), 'Remove the link')
+    assert_completed(commands, 'delete', str(place(commands, 'Other Documents/reports/x')), 'Remove other document')
+    commands.configure(['~/MyDocument?/'])
+    assert_pending(commands, '~/MyDocument?/', 'delete', str(documents_link), 'Remove the link')
     assert_completed(commands, 'delete', str(linked_document), 'Remove linked document')
     commands.configure(['.git/'])
     place(commands, 'link-targets/repository/config')
@@ -1055,11 +1189,15 @@ if __name__ == '__main__':
         move_recording_failure(commands, listener)
         move_preparation(commands, listener)
         replacement_trash_location(commands, listener)
-    invalid_trash_parents(commands)
     # The next case runs with no configuration file, and the cases after it send no notifications.
     (commands.directory / '.saferm' / 'config.toml').unlink()
     (commands.directory / '.saferm' / 'notifications.json').unlink()
     empty_builtin_list(commands)
+    omitted_or_blank_trash_path(commands)
+    omitted_retain_period(commands)
+    invalid_retain_period(commands)
+    invalid_trash_path(commands)
+    terminal_error_color(commands)
     name_and_path_patterns(commands)
     folder_contents_protected(commands)
     bracket_folder_name(commands)

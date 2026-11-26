@@ -120,7 +120,7 @@ func TestPatternExamples(t *testing.T) {
 // Test layer: Coverage.
 // Test kind: Permanent.
 // What is under test:
-// DocsHome is a link to the directory "Docs Home". A pattern written through
+// MyDocuments is a link to the directory "My Documents". A pattern written through
 // the link protects items under the directory. A pattern that names the link
 // protects the link, the directory, and the directory's contents, and leaves a
 // sibling directory alone. A pattern that matches the link through a wildcard
@@ -128,9 +128,9 @@ func TestPatternExamples(t *testing.T) {
 // protects that directory's contents and not those of its sibling "Album1".
 func TestLinkedPatterns(t *testing.T) {
 	root, home := fixtureRoot(t)
-	documents := filepath.Join(home, "Docs Home")
-	documentsLink := filepath.Join(home, "DocsHome")
-	linkedFile := filepath.Join(documents, "Coding", "x")
+	documents := filepath.Join(home, "My Documents")
+	documentsLink := filepath.Join(home, "MyDocuments")
+	linkedFile := filepath.Join(documents, "reports", "x")
 	siblingFile := filepath.Join(home, "Other", "x")
 	bracketFile := filepath.Join(root, "photos", "Album[1]", "private", "f")
 	plainFile := filepath.Join(root, "photos", "Album1", "private", "f")
@@ -153,13 +153,13 @@ func TestLinkedPatterns(t *testing.T) {
 		item        string
 		isProtected bool
 	}{
-		{"~/DocsHome/Coding/", linkedFile, true},
-		{"~/DocsHome/", linkedFile, true},
-		{"~/DocsHome/", documentsLink, true},
-		{"~/DocsHome/", documents, true},
-		{"~/DocsHome/", siblingFile, false},
-		{"~/DocsHom?/", documentsLink, true},
-		{"~/DocsHom?/", linkedFile, false},
+		{"~/MyDocuments/reports/", linkedFile, true},
+		{"~/MyDocuments/", linkedFile, true},
+		{"~/MyDocuments/", documentsLink, true},
+		{"~/MyDocuments/", documents, true},
+		{"~/MyDocuments/", siblingFile, false},
+		{"~/MyDocument?/", documentsLink, true},
+		{"~/MyDocument?/", linkedFile, false},
 		{albumPattern, bracketFile, true},
 		{albumPattern, plainFile, false},
 	} {

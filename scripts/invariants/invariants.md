@@ -12,7 +12,7 @@
 - Ordinary delete and move operations create history after execution. Requests requiring approval are saved before execution. A failed result write returns recovery information and is distinguished from a failed filesystem operation.
 - Ordinary commands inspect only records and files needed for the requested operation. Interrupted or ambiguous operations are reported without guessing their outcome.
 - Move and restore replacement refuse before effects when the configured trash directory lies inside the directory being transferred. Existing or absent trash and review requirements do not permit relocating the retained occupant or any intermediate symbolic link used to reach it. Refused replacements leave files, history, and notifications unchanged; unrelated outside trash links still permit replacement.
-- If a file occupies the configured trash directory or one of its parents, delete, move replacement, and restore replacement refuse before changing files or history. Both replacing items and the blocking file retain their contents. Path resolution rejects an existing file used as a directory parent.
+- A configured trash directory that is a file or leads through one gives way to the built-in trash directory: delete, move replacement, and restore replacement use the built-in trash, and the file in the way keeps its contents. Path resolution rejects an existing file used as a directory parent.
 
 ## Help
 
@@ -21,7 +21,8 @@
 
 ## Configuration
 
-- Without an active file, configuration comes entirely from embedded TOML. An active file replaces defaults completely; omitted keys remain unset. Malformed or unreadable files cause errors.
+- Without an active file, configuration comes entirely from embedded TOML. An active file replaces the defaults, except for the settings that always have a value. A `trash-path` the file omits, sets blank, or sets to a value that can't be applied (not a string, a file, or a path through a file) is the embedded one: `config` reports it, a delete puts the item there, restore returns the item from there, and move replacement keeps the occupant there. A `retain-period` the file omits or sets to anything but a whole number of 0 or more is the embedded one: `config` reports it, and `cleanup` succeeds and removes a resolved record only once that many days have passed since its resolution. An omitted `require-review` remains unset. Malformed or unreadable files cause errors.
+- `config` reports each value from the file that it replaced, as written, in JSON and in the text display. The text display shows the catalog error below that setting, in red when standard output is a terminal and without color codes otherwise; a configuration whose values all apply shows no error.
 - `config` displays every recognized setting, explicit unset states, and the selected source beneath a title and separator. Labels and values align in a 60-column display; long values wrap without truncation, and empty settings remain distinct from omitted settings. Only settings needed for an invoked operation must be usable.
 - `config --default` outputs the embedded document without reading active configuration or opening SQLite; JSON returns its structured values.
 - The built-in configuration lists no review patterns. With no configuration file, no delete or move waits for approval because of a pattern.
@@ -49,7 +50,7 @@
 - Two moves to one occupied destination create separate deletes. Either approval order preserves the original occupant and the first moved item in separate trash items, with the last moving source at the destination.
 - Failure to save the move and delete atomically records neither, exposes no assigned IDs, leaves the moving source untouched, and identifies an already-retained occupant by its trash ID and paths with a database-result error.
 - Existing database upgrades preserve records, diagnostics, and IDs; repeated or concurrent opens behave identically. Removed blocker history does not change the move's reference or permit ID reuse. Pending-dependent reads release the database connection before decisions.
-- An empty destination permits an ordinary move without trash. Missing trash for replacement and overlapping paths change no files or history. A missing moving source leaves its pending request unchanged and deniable after its occupying delete completes.
+- An empty destination permits an ordinary move without trash. Overlapping paths change no files or history. A missing moving source leaves its pending request unchanged and deniable after its occupying delete completes.
 
 ## List, view, and dispose
 
@@ -90,7 +91,7 @@
 - Details expose recorded metadata, paths, review rules, timestamps, decisions, and errors. New delete and move forms preserve required inputs and optional requester/description metadata.
 - Restore replacement and configuration reset retain the backend confirmation prompt and path. The interface resubmits with consent only after the user confirms; canceling preserves the files.
 - Partial failures retain successful action results and individual diagnostics. A partial purge closes its dialog and refreshes history; a subsequent purge excludes items already purged.
-- Cleanup exposes the orphan option. Configuration exposes current values, embedded defaults, setup, and reset. Help describes the available operations.
+- Cleanup exposes the orphan option. Configuration exposes current values, embedded defaults, setup, and reset. A setting whose value from the file was replaced shows an error naming that value until a save writes the values in effect. Help describes the available operations.
 - Older history responses cannot overwrite newer requests. Refresh failures remain visible. Empty and out-of-range pages stay usable without panics.
 - Standard action success produces no floating popup. Operation failures use native dialogs attached to the desktop window.
 - The overwrite checkbox in the new-operation form applies only to move requests. Confirmation displays supplied IDs and literal paths without a terminal hint, and only Yes resubmits with consent. Details expose both pending causes; linked decisions and partial errors refresh history. The adapter preserves actions, confirmation metadata, and errors together.

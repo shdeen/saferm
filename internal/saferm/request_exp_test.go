@@ -7,7 +7,7 @@ package saferm
 //  4. Changed pending paths: Approval rechecks mutable source and destination conditions.
 //  5. Maintenance retention: Pending and recoverable actions survive age and orphan cleanup.
 //  6. Missing purge items: A batch reports missing items while completing eligible removals.
-//  7. Unusable trash: A rejected deletion leaves its source intact.
+//  7. Unusable trash: A configured trash directory that can't be used gives way to the embedded one without changing what blocks it.
 //  8. Cancellation: Canceled requests do not mutate files or create history.
 //  9. Denial recording: A failed denial write must not claim that a filesystem operation succeeded.
 
@@ -292,25 +292,34 @@ func TestPurgeMissingBatch(t *testing.T) {
 // Test layer: Hardening/adversarial.
 // Test kind: Permanent.
 // What is under test:
-// A file occupying the configured trash directory prevents deletion; the original
-// source is still intact and the blocking file remains untouched.
+// With a file occupying the configured trash directory, a delete puts the item
+// in the embedded trash directory, and the blocking file remains untouched.
 func TestUnusableTrash(t *testing.T) {
 	home := configuredHome(t, 30)
 	source := filepath.Join(home, "source")
 	writeFile(t, source, "payload")
 	writeFile(t, filepath.Join(home, "trash"), "blocks directory")
 
-	_, err := Run(t.Context(), &Request{Command: Delete, Source: source, Reason: "remove"})
-	if err == nil {
-		t.Error("✗ unusable trash accepted")
+	embedded, err := config.Decode(config.DefaultDocument)
+	if err != nil {
+		t.Fatalf("💣 embedded defaults: %v", err)
 	}
 
-	assertFile(t, source, "payload")
+	embeddedTrash, err := embedded.Trash(home)
+	if err != nil {
+		t.Fatalf("💣 embedded trash: %v", err)
+	}
 
+	result, err := Run(t.Context(), &Request{Command: Delete, Source: source, Reason: "remove"})
+	if err != nil || len(result.Actions) != 1 || result.Actions[0].TrashPath != embeddedTrash {
+		t.Fatalf("✗ delete with unusable trash: %+v, %v", result, err)
+	}
+
+	assertFile(t, filepath.Join(embeddedTrash, result.Actions[0].TrashID), "payload")
 	assertFile(t, filepath.Join(home, "trash"), "blocks directory")
 
 	if !t.Failed() {
-		t.Log("✓ failed transfer retains source")
+		t.Log("✓ unusable trash gives way to the embedded trash")
 	}
 }
 

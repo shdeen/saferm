@@ -228,46 +228,30 @@ func TestRestoreRecordingFailures(t *testing.T) {
 // Test layer: Hardening/adversarial.
 // Test kind: Permanent.
 // What is under test:
-// A failed original with an occupied source, or an invalid trash directory for the
-// occupying delete, refuses replacement without changing files or history.
+// A failed original with an occupied source refuses replacement with an
+// ambiguity error, without changing files or history.
 func TestRestorePreparationRefusals(t *testing.T) {
-	for _, failedOriginal := range []bool{false, true} {
-		t.Run("failed_original="+strconv.FormatBool(failedOriginal), func(t *testing.T) {
-			home := configuredHome(t, 30)
-			source, destination := filepath.Join(home, "source"), filepath.Join(home, "destination")
-			writeFile(t, source, "original contents")
-			original := performAction(t, Request{Command: Move, Source: source, Destination: destination, Reason: "retain original"})
-			writeFile(t, source, "occupying contents")
+	home := configuredHome(t, 30)
+	source, destination := filepath.Join(home, "source"), filepath.Join(home, "destination")
+	writeFile(t, source, "original contents")
+	original := performAction(t, Request{Command: Move, Source: source, Destination: destination, Reason: "retain original"})
+	writeFile(t, source, "occupying contents")
 
-			if failedOriginal {
-				executeSQL(t, home, `UPDATE actions SET status=? WHERE action_id=?`, store.Failed, original.ID)
-				original.Status = store.Failed
-			} else {
-				writeFile(t, filepath.Join(home, "trash"), "invalid trash directory")
-			}
+	executeSQL(t, home, `UPDATE actions SET status=? WHERE action_id=?`, store.Failed, original.ID)
+	original.Status = store.Failed
 
-			result, err := Run(t.Context(), &Request{Command: Restore, ID: strconv.FormatInt(original.ID, 10), Overwrite: true, Force: true})
-			if err == nil || len(result.Actions) != 0 {
-				t.Errorf("✗ invalid restore changed actions: %+v, %v", result, err)
-			}
-
-			if failedOriginal && !errors.Is(err, errs.ErrActionAmbiguous) {
-				t.Errorf("✗ failed original did not report ambiguity: %v", err)
-			}
-
-			recorded := performAction(t, Request{Command: View, ID: strconv.FormatInt(original.ID, 10)})
-			if !reflect.DeepEqual(recorded, original) {
-				t.Errorf("✗ original changed before preparation succeeded: %+v", recorded)
-			}
-
-			assertFile(t, source, "occupying contents")
-			assertFile(t, destination, "original contents")
-
-			if !t.Failed() {
-				t.Log("✓ restore case preserves its required outcome")
-			}
-		})
+	result, err := Run(t.Context(), &Request{Command: Restore, ID: strconv.FormatInt(original.ID, 10), Overwrite: true, Force: true})
+	if !errors.Is(err, errs.ErrActionAmbiguous) || len(result.Actions) != 0 {
+		t.Errorf("✗ failed original was not refused as ambiguous: %+v, %v", result, err)
 	}
+
+	recorded := performAction(t, Request{Command: View, ID: strconv.FormatInt(original.ID, 10)})
+	if !reflect.DeepEqual(recorded, original) {
+		t.Errorf("✗ original changed before preparation succeeded: %+v", recorded)
+	}
+
+	assertFile(t, source, "occupying contents")
+	assertFile(t, destination, "original contents")
 
 	if !t.Failed() {
 		t.Log("✓ failed preparation preserves both items and the original record")
@@ -392,11 +376,11 @@ func TestFailedTransferRecording(t *testing.T) {
 // Test layer: Hardening/adversarial.
 // Test kind: Permanent.
 // What is under test:
-// Resolved records, missing trash configuration, invalid trash identities,
-// destinations containing the active database, and rejected pending-delete
-// insertion all refuse before changing the original record or either item.
+// Resolved records, invalid trash identities, destinations containing the
+// active database, and rejected pending-delete insertion all refuse before
+// changing the original record or either item.
 func TestRestoreRefusals(t *testing.T) {
-	for _, refusal := range []string{"resolved", "trash unset", "trash identity", "database", "database directory", "review insertion"} {
+	for _, refusal := range []string{"resolved", "trash identity", "database", "database directory", "review insertion"} {
 		t.Run(refusal, func(t *testing.T) {
 			home := configuredHome(t, 30)
 			source := filepath.Join(home, "source")
@@ -413,10 +397,6 @@ func TestRestoreRefusals(t *testing.T) {
 				executeSQL(t, home, `UPDATE actions SET status=? WHERE action_id=?`, store.Denied, original.ID)
 
 				refusalError = errs.ErrActionResolved
-			case "trash unset":
-				writeConfig(t, home, "retain-period = 30\n")
-
-				refusalError = errs.ErrConfigMissing
 			case "trash identity":
 				executeSQL(t, home, `UPDATE deleted SET trash_id=? WHERE action_id=?`, "../outside", original.ID)
 
@@ -795,11 +775,11 @@ func TestFreshLinkedConsent(t *testing.T) {
 // Test layer: Hardening/adversarial.
 // Test kind: Permanent.
 // What is under test:
-// Replacement without overwrite, without trash, across overlapping paths, into
-// the active database directory, or into its own trash is refused before consent
-// or any mutation. Force alone never authorizes replacing the destination.
+// Replacement without overwrite, across overlapping paths, into the active
+// database directory, or into its own trash is refused before consent or any
+// mutation. Force alone never authorizes replacing the destination.
 func TestMovePreparationRefusals(t *testing.T) {
-	for _, condition := range []string{"no overwrite", "force alone", "missing trash", "overlap", "database", "trash overlap"} {
+	for _, condition := range []string{"no overwrite", "force alone", "overlap", "database", "trash overlap"} {
 		t.Run(condition, func(t *testing.T) {
 			homeDirectory := configuredHome(t, 30)
 
@@ -822,8 +802,6 @@ func TestMovePreparationRefusals(t *testing.T) {
 			case "trash overlap":
 				occupant = filepath.Join(destination, "occupant")
 				writeConfig(t, home, fmt.Sprintf("trash-path = %q\nrequire-review = []\n", filepath.Join(destination, "trash")))
-			case "missing trash":
-				writeConfig(t, home, "require-review = []\n")
 			}
 
 			writeFile(t, source, "moving contents")

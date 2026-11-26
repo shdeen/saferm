@@ -10,7 +10,7 @@ import {
   chooseDirectory,
   openConfiguration,
 } from '../bridge/operations';
-import { appstrings } from '../shared/text';
+import { appstrings, formatText } from '../shared/text';
 
 vi.mock('../bridge/operations', function mockSettingsBridge() {
   return {
@@ -86,6 +86,41 @@ describe('Settings editing', function settingsTests() {
     fireEvent.blur(retentionField);
     expect(screen.getByText('not a valid number')).toBeVisible();
     expect(updateSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows an error for each value that the configuration file could not apply until a save replaces it', async function replacedValues() {
+    vi.mocked(runOperation).mockResolvedValue({
+      result: { config: { ...storedSettings, invalidRetainPeriod: '-5' } },
+      error: '',
+    });
+    await renderSettings();
+    const errorStart = appstrings.invalidConfigValue.split('{value}')[0];
+    expect(
+      screen.getByText(formatText(appstrings.invalidConfigValue, { value: '-5' })),
+    ).toBeVisible();
+    expect(
+      screen.getAllByText(function replacedValueError(text) {
+        return text.startsWith(errorStart);
+      }),
+    ).toHaveLength(1);
+
+    vi.mocked(runOperation).mockResolvedValue({
+      result: { config: { ...storedSettings, invalidTrashPath: '/blocked' } },
+      error: '',
+    });
+    cleanup();
+    await renderSettings();
+    expect(
+      screen.getByText(formatText(appstrings.invalidConfigValue, { value: '/blocked' })),
+    ).toBeVisible();
+    fireEvent.change(screen.getByLabelText(appstrings.retention), { target: { value: '42' } });
+    await advanceTime(250);
+    expect(updateSettings).toHaveBeenLastCalledWith({ retainPeriod: 42 });
+    expect(
+      screen.queryByText(function replacedValueError(text) {
+        return text.startsWith(errorStart);
+      }),
+    ).not.toBeInTheDocument();
   });
 
   it('validates typed directories on blur and clears valid feedback after five seconds', async function directoryEditing() {
